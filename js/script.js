@@ -340,6 +340,9 @@ const els = {
   colLy: document.getElementById("colLy"), colKy: document.getElementById("colKy"),
   colCarga: document.getElementById("colCarga"),
   compactToggle: document.getElementById("compactToggle"),
+  perfilSelect: document.getElementById("perfilSelect"),
+  reportStatus: document.getElementById("reportStatus"),
+  reportBar: document.getElementById("reportBar"),
 };
 
 els.compactToggle.addEventListener("change", ()=>{
@@ -362,6 +365,8 @@ document.getElementById("modeGrid").addEventListener("change", ()=>{
 });
 
 let cargaVarTouched = false, lbTouched = false, shown = 6, currentResults = [], currentMode = "viga";
+// perfil escolhido para o relatorio: guardado pela bitola, para sobreviver a um recalculo
+let selectedIdx = 0, selectedBitola = null;
 els.cargaVar.addEventListener("input", ()=>{ cargaVarTouched = true; recalc(); });
 els.lb.addEventListener("input", ()=>{ lbTouched = true; els.lbRange.value = els.lb.value; recalc(); });
 els.lbRange.addEventListener("input", ()=>{ lbTouched = true; els.lb.value = els.lbRange.value; recalc(); });
@@ -431,7 +436,7 @@ function dimH(y, x1, x2, label){
 
 function buildProfileSvg(perfil){
   const d = perfil.d, bf = perfil.bf, tf = perfil.tf, tw = perfil.tw, h = perfil.h;
-  const mL = 58, mR = 50, mT = 20, mB = 40;
+  const mL = 64, mR = 64, mT = 28, mB = 52;   // folga para as cotas e os rótulos X/Y não serem cortados
   const x0 = mL, y0 = mT;
   const xC = x0 + bf/2, yC = y0 + d/2;
   const webX0 = xC - tw/2, webX1 = xC + tw/2;
@@ -446,9 +451,9 @@ function buildProfileSvg(perfil){
   s += `<text class="ps-axis-label" x="${x0+bf+20}" y="${yC+4}" text-anchor="start">X</text>`;
   s += `<line class="ps-axis" x1="${xC}" y1="${y0-12}" x2="${xC}" y2="${y0+d+12}" stroke-dasharray="5,3"/>`;
   s += `<text class="ps-axis-label" x="${xC}" y="${y0-16}" text-anchor="middle">Y</text>`;
-  s += `<text class="ps-axis-label" x="${xC}" y="${y0+d+26}" text-anchor="middle">Y</text>`;
+  s += `<text class="ps-axis-label" x="${xC}" y="${y0+d+36}" text-anchor="middle">Y</text>`;
 
-  s += dimV(x0+bf+34, y0, y0+d, `d = ${fmt(d,0)} mm`);
+  s += dimV(x0+bf+42, y0, y0+d, `d = ${fmt(d,0)} mm`);
   s += dimV(x0-34, flTopY1, flBotY0, `h = ${fmt(h,0)}`);
   s += dimH(y0+d+18, x0, x0+bf, `bf = ${fmt(bf,0)} mm`);
 
@@ -650,227 +655,546 @@ function buildDiagram(tipo, vaoM, cargaKN){
   return `<svg viewBox="0 0 640 ${viewH}" xmlns="http://www.w3.org/2000/svg">${s}</svg>`;
 }
 
-function mstep(titulo, formula, sub, resHtml){
-  return `<div class="mstep">
-    <div class="mtitle">${titulo}</div>
-    <div class="mformula">${formula}</div>
-    <div class="msub">${sub}</div>
-    <div class="mres">${resHtml}</div>
-  </div>`;
-}
+/* ================= MODELO DE CÁLCULO (fonte única de HTML, PDF e Word) =================
+
+   Todo o passo a passo é descrito uma única vez, em texto, por modeloViga()/modeloColuna().
+   Três consumidores leem a mesma estrutura:
+     · renderModeloHtml()  -> memorial na tela e no relatório PDF (impressão do navegador)
+     · buildWordParas()    -> memorial no arquivo .docx editável
+     · buildPrintReportFor() -> reaproveita o HTML acima
+
+   Notação: no texto escreve-se "M_sd", "L_p", "N_c,Rd". mathHtml() vira <sub>, mathTxt()
+   apenas remove o sublinhado (o Word recebe "Msd", "Lp", "Nc,Rd").
+   Expoentes e símbolos usam Unicode direto (², ³, √, ≤, ×, ·, λ, χ, δ, σ, π).
+*/
+
+const RE_SUB = /([A-Za-zΔλχδπσ])_([A-Za-z0-9,]+)/g;
+function mathHtml(s){ return String(s).replace(RE_SUB, "$1<sub>$2</sub>"); }
+function mathTxt(s){ return String(s).replace(RE_SUB, "$1$2"); }
+
 function okBadge(okBool){
   return `<span class="cmp ${okBool?'ok':'fail'}">${okBool?'✓ atende':'✗ não atende'}</span>`;
 }
 
-function fmtSM(v, d=4){
-  // número em ponto decimal (não vírgula), formato aceito pelo SMath Studio
-  return Number(v).toFixed(d).replace(/\.?0+$/,"").replace(/^$/,"0");
-}
+/* ---------------- modelo: viga (flexão) ---------------- */
 
-function buildSMathExport(r){
-  const p = r.perfil, md = r.mrdDet, vd = r.vrdDet, pat = r.pat;
-  const L = [];
-  const add = (s="") => L.push(s);
-
-  add("g:=9.80665*m/s^2");
-  add("tf:=1000*kg*g");
-  add("f_y:=3.45*tf/cm^2");
-  add("E:=2000*tf/cm^2");
-  add("sigma_r:=0.3*f_y");
-  add("CAL:=1.65");
-  add("");
-  add(`d_p:=${fmtSM(p.d,1)}*mm`);
-  add(`b_f:=${fmtSM(p.bf,1)}*mm`);
-  add(`t_f:=${fmtSM(p.tf,2)}*mm`);
-  add(`t_w:=${fmtSM(p.tw,2)}*mm`);
-  add(`Z_x:=${fmtSM(p.Zx,2)}*cm^3`);
-  add(`W_x:=${fmtSM(p.Wx,2)}*cm^3`);
-  add(`I_x:=${fmtSM(p.Ix,1)}*cm^4`);
-  add(`r_y:=${fmtSM(p.ry,3)}*cm`);
-  add(`massa:=${fmtSM(p.massa,2)}*kg/m`);
-  add("");
-  add(`L:=${fmtSM(r.vaoM,3)}*m`);
-  add(`Lb:=${fmtSM(r.LbM,3)}*m`);
-  add(`P:=${fmtSM(r.cargaUtilTf,4)}*tf`);
-  add(`P_var:=${fmtSM(r.cargaVar,4)}*tf`);
-  add(`a_coef:=${fmtSM(pat.a,3)}`);
-  add(`c_coef:=${fmtSM(pat.c,3)}`);
-  add(`e_coef:=${fmtSM(pat.e,4)}`);
-  add("");
-  add("L_p:=1.76*r_y*sqrt(E/f_y)");
-  add("");
-  add("M_pl:=f_y*Z_x");
-  add("lambda_f:=(b_f/2)/t_f");
-  add("lambda_p:=0.38*sqrt(E/f_y)");
-  add("lambda_r:=0.83*sqrt(E/(f_y-sigma_r))");
-  add("M_r:=(f_y-sigma_r)*W_x");
-  add(md.regime==='compacta'
-    ? "M_n_FLM:=M_pl"
-    : "M_n_FLM:=M_pl-(M_pl-M_r)*(lambda_f-lambda_p)/(lambda_r-lambda_p)");
-  add(md.Mpl<=md.Mnflm ? "M_rd:=M_pl/CAL" : "M_rd:=M_n_FLM/CAL");
-  add("");
-  add("A_w:=d_p*t_w");
-  add("V_pl:=0.6*A_w*f_y");
-  add("V_rd:=V_pl/CAL");
-  add("");
-  add("p_p:=massa*g");
-  add("M_sd:=p_p*L^2/8+a_coef*P*L");
-  add("V_sd:=p_p*L/2+c_coef*P");
-  if(r.flechaCm!==null){
-    add("");
-    add("delta:=e_coef*P_var*L^3/(E*I_x)");
-    add(`delta_lim:=L/${r.limiteFlechaFrac}`);
-  }
-  return L.join("\n");
-}
-
-function renderMemorial(r, idx){
+function modeloViga(r){
   const p = r.perfil, md = r.mrdDet, vd = r.vrdDet, pat = r.pat;
   const cargaKN = r.cargaUtilTf*KN_PER_TF, cargaVarKN = r.cargaVar*KN_PER_TF;
+  const cargaEhTotal = r.tipo === "uniforme";
 
-  const propsHtml = `<div class="mprops">
-    <div><b>d</b>${fmt(p.d,0)} mm</div>
-    <div><b>bf</b>${fmt(p.bf,0)} mm</div>
-    <div><b>tf</b>${fmt(p.tf,1)} mm</div>
-    <div><b>tw</b>${fmt(p.tw,1)} mm</div>
-    <div><b>A</b>${fmt(p.A,1)} cm²</div>
-    <div><b>Ix</b>${fmt(p.Ix,0)} cm⁴</div>
-    <div><b>Wx</b>${fmt(p.Wx,1)} cm³</div>
-    <div><b>Zx</b>${fmt(p.Zx,1)} cm³</div>
-    <div><b>ry</b>${fmt(p.ry,2)} cm</div>
-    <div><b>massa</b>${fmt(p.massa,1)} kg/m</div>
-  </div>`;
+  const entradas = [
+    ["L", "Vão livre entre apoios", `${fmt(r.vaoM,2)} m`, "informado pelo usuário"],
+    ["—", "Tipo de carregamento", pat.label, "selecionado pelo usuário"],
+    ["P", cargaEhTotal ? "Carga total distribuída aplicada (sem peso próprio da viga)"
+                       : "Valor de cada carga concentrada (sem peso próprio da viga)",
+       `${fmt(cargaKN,2)} kN`, "informado pelo usuário"],
+    ["P_var", "Parcela variável da carga — só ela entra na flecha", `${fmt(cargaVarKN,2)} kN`,
+       "informado pelo usuário (NBR 8800:2008, Anexo C)"],
+    ["L_b", "Comprimento destravado da mesa comprimida", `${fmt(r.LbM,2)} m`, "informado pelo usuário"],
+    ["δ_lim", "Limite de deslocamento vertical",
+       r.limiteFlechaFrac ? `L/${r.limiteFlechaFrac}` : "não verificado",
+       "escolhido pelo usuário na Tabela C.1 da NBR 8800:2008"],
+    ["—", "Perfil verificado", p.bitola, "escolhido entre os 108 perfis W/HP da base"],
+  ];
 
-  const lpStep = mstep(
-    "Comprimento destravado limite — L<sub>p</sub>",
-    "L<sub>p</sub> = 1,76 · r<sub>y</sub> · √(E / f<sub>y</sub>)",
-    `L<sub>p</sub> = 1,76 × ${fmt(p.ry,2)} × √(${fmt(E,0)} / ${fmt(FY,2)})`,
-    `L<sub>p</sub> = ${fmt(r.lpDet.Lp_cm,1)} cm = <strong>${fmt(r.Lp,2)} m</strong>
-     <span class="cmp ${!r.avisoFlt?'ok':'fail'}">L<sub>b</sub> informado = ${fmt(r.LbM,2)} m ${!r.avisoFlt? '≤' : '&gt;'} L<sub>p</sub> → ${!r.avisoFlt?'✓ FLT não governa':'✗ FLT pode reduzir M_rd'}</span>`
+  const constantes = [
+    ["f_y", "Resistência ao escoamento do aço", "3,45 tf/cm² = 34,5 kN/cm² = 345 MPa", "ASTM A572 Gr.50 — aço adotado no catálogo GERDAU"],
+    ["E", "Módulo de elasticidade do aço", "2000 tf/cm² = 20000 kN/cm² ≈ 200 GPa", "NBR 8800:2008, item 4.5.2"],
+    ["σ_r", "Tensão residual de laminação = 0,30·f_y", `${fmt(SIGMA_R,3)} tf/cm²`, "NBR 8800:2008 (perfis laminados)"],
+    ["CAL", "Coeficiente de segurança global (tensões admissíveis)", "1,65", "critério da Tabela de Vãos e Cargas GERDAU, 5ª ed."],
+    ["g", "Aceleração da gravidade — conversão kN ↔ tf", "9,80665 m/s²  →  1 tf = 9,80665 kN", "SI"],
+  ];
+
+  const props = [
+    ["d", "Altura total do perfil", `${fmt(p.d,1)} mm`],
+    ["b_f", "Largura da mesa", `${fmt(p.bf,1)} mm`],
+    ["t_f", "Espessura da mesa", `${fmt(p.tf,2)} mm`],
+    ["t_w", "Espessura da alma", `${fmt(p.tw,2)} mm`],
+    ["h", "Altura da alma (entre mesas)", `${fmt(p.h,1)} mm`],
+    ["A", "Área da seção transversal", `${fmt(p.A,2)} cm²`],
+    ["I_x", "Momento de inércia — eixo x-x", `${fmt(p.Ix,0)} cm⁴`],
+    ["W_x", "Módulo de resistência elástico — x-x", `${fmt(p.Wx,1)} cm³`],
+    ["Z_x", "Módulo de resistência plástico — x-x", `${fmt(p.Zx,1)} cm³`],
+    ["r_x", "Raio de giração — x-x", `${fmt(p.rx,2)} cm`],
+    ["I_y", "Momento de inércia — eixo y-y", `${fmt(p.Iy,0)} cm⁴`],
+    ["W_y", "Módulo de resistência elástico — y-y", `${fmt(p.Wy,1)} cm³`],
+    ["Z_y", "Módulo de resistência plástico — y-y", `${fmt(p.Zy,1)} cm³`],
+    ["r_y", "Raio de giração — y-y (governa a FLT)", `${fmt(p.ry,2)} cm`],
+    ["massa", "Massa linear do perfil", `${fmt(p.massa,1)} kg/m`],
+    ["M_rd (tab.)", "Momento resistente impresso na tabela GERDAU", `${fmt(p.mrdCat,2)} tf·m`],
+    ["Q_vrd (tab.)", "Cortante resistente total impresso (2 apoios)", `${fmt(p.qvrdCat,2)} tf`],
+  ];
+
+  const secoes = [];
+
+  secoes.push({titulo:"Conversão das entradas para as unidades de cálculo", passos:[
+    {id:"P", t:"Carga aplicada, de kN para tf",
+     f:"P(tf) = P(kN) / 9,80665",
+     s:`P = ${fmt(cargaKN,2)} / 9,80665`,
+     r:`P = ${fmt(r.cargaUtilTf,4)} tf`,
+     n:"As fórmulas do catálogo GERDAU trabalham em tf e cm. Toda entrada dada em kN é convertida antes de qualquer conta; no fim, os resultados são reapresentados também em kN."},
+    {id:"Pvar", t:"Parcela variável da carga, de kN para tf",
+     f:"P_var(tf) = P_var(kN) / 9,80665",
+     s:`P_var = ${fmt(cargaVarKN,2)} / 9,80665`,
+     r:`P_var = ${fmt(r.cargaVar,4)} tf`,
+     n:"A NBR 8800:2008 limita o deslocamento apenas sob a ação variável — a parcela permanente é compensada por contraflecha."},
+    {id:"Lcm", t:"Vão, de m para cm",
+     f:"L(cm) = L(m) × 100",
+     s:`L = ${fmt(r.vaoM,2)} × 100`,
+     r:`L = ${fmt(r.Lcm,1)} cm`,
+     n:"O vão em cm é usado só na flecha, onde E e I_x estão em tf/cm² e cm⁴. Nas demais fórmulas o vão entra em metros, gerando resultados em tf·m."},
+    {id:"pp", t:"Peso próprio distribuído do perfil",
+     f:"p_p = massa / 1000",
+     s:`p_p = ${fmt(p.massa,1)} / 1000`,
+     r:`p_p = ${fmt(r.ppTfm,4)} tf/m = ${fmt(r.ppTfm*KN_PER_TF,3)} kN/m`,
+     n:"A massa está em kg/m e 1 tf corresponde a 1000 kg. O peso próprio não é digitado pelo usuário: cada perfil candidato soma automaticamente o seu."},
+  ]});
+
+  const coefExpl = {
+    uniforme:"Viga biapoiada com carga uniformemente distribuída: M = P·L/8 (a = 1/8 = 0,125), reação = P/2 (c = 0,5) e δ = 5·P·L³/(384·E·I) (e = 5/384 ≈ 0,0130). P é a carga total sobre o vão.",
+    ponto_meio:"Carga única no meio do vão: M = P·L/4 (a = 0,25), reação = P/2 (c = 0,5) e δ = P·L³/(48·E·I) (e = 1/48 ≈ 0,0208).",
+    dois_tercos:"Duas cargas iguais a L/3 e 2L/3: M = P·L/3 (a ≈ 0,333), reação = P (c = 1,0) e δ = 23·P·L³/(648·E·I) (e ≈ 0,0355). P é o valor de cada carga.",
+    tres_quartos:"Três cargas iguais a L/4, L/2 e 3L/4: M = P·L/2 (a = 0,5), reação = 1,5·P (c = 1,5) e δ ≈ 19·P·L³/(384·E·I) (e ≈ 0,0500). P é o valor de cada carga.",
+  };
+  secoes.push({titulo:"Coeficientes do tipo de carregamento (a, c, e)", passos:[
+    {id:"coef", t:`Coeficientes da configuração escolhida — ${pat.label.toLowerCase()}`,
+     f:"M_ext = a·P·L      V_ext = c·P      δ = e·P_var·L³/(E·I_x)",
+     s:`configuração: ${pat.label}`,
+     r:`a = ${fmt(pat.a,3)}     c = ${fmt(pat.c,3)}     e = ${fmt(pat.e,4)}`,
+     n:coefExpl[r.tipo] || ""},
+  ]});
+
+  secoes.push({titulo:"Esforços solicitantes (M_sd e V_sd)", passos:[
+    {id:"Mpp", t:"Momento do peso próprio (carga sempre distribuída)",
+     f:"M_pp = p_p · L² / 8",
+     s:`M_pp = ${fmt(r.ppTfm,4)} × ${fmt(r.vaoM,2)}² / 8`,
+     r:`M_pp = ${fmt(r.Mpp,4)} tf·m`,
+     n:"O peso próprio do perfil é sempre uniformemente distribuído, qualquer que seja o tipo da carga aplicada — por isso usa o coeficiente 1/8, e não o coeficiente a."},
+    {id:"Mext", t:"Momento da carga aplicada",
+     f:"M_ext = a · P · L",
+     s:`M_ext = ${fmt(pat.a,3)} × ${fmt(r.cargaUtilTf,4)} × ${fmt(r.vaoM,2)}`,
+     r:`M_ext = ${fmt(r.Mutil,4)} tf·m`},
+    {id:"Msd", t:"Momento fletor solicitante total",
+     f:"M_sd = M_pp + M_ext",
+     s:`M_sd = ${fmt(r.Mpp,4)} + ${fmt(r.Mutil,4)}`,
+     r:`M_sd = ${fmt(r.Msd,3)} tf·m = ${fmt(r.Msd*KN_PER_TF,2)} kN·m`,
+     n:"Valor de serviço (sem majoração por coeficientes de ponderação das ações): o critério do catálogo já embute a segurança no divisor 1,65 da resistência."},
+    {id:"Vpp", t:"Cortante do peso próprio",
+     f:"V_pp = p_p · L / 2",
+     s:`V_pp = ${fmt(r.ppTfm,4)} × ${fmt(r.vaoM,2)} / 2`,
+     r:`V_pp = ${fmt(r.Vpp,4)} tf`},
+    {id:"Vext", t:"Cortante da carga aplicada (reação por apoio)",
+     f:"V_ext = c · P",
+     s:`V_ext = ${fmt(pat.c,3)} × ${fmt(r.cargaUtilTf,4)}`,
+     r:`V_ext = ${fmt(r.Vutil,4)} tf`},
+    {id:"Vsd", t:"Força cortante solicitante por apoio",
+     f:"V_sd = V_pp + V_ext",
+     s:`V_sd = ${fmt(r.Vpp,4)} + ${fmt(r.Vutil,4)}`,
+     r:`V_sd = ${fmt(r.Vsd,3)} tf = ${fmt(r.Vsd*KN_PER_TF,2)} kN`,
+     n:"Em viga biapoiada o cortante máximo ocorre junto aos apoios e vale a própria reação."},
+  ]});
+
+  const passosFlexao = [
+    {id:"Lp", t:"Comprimento destravado limite do patamar plástico",
+     f:"L_p = 1,76 · r_y · √(E / f_y)",
+     s:`L_p = 1,76 × ${fmt(p.ry,2)} × √(${fmt(E,0)} / ${fmt(FY,2)})`,
+     r:`L_p = ${fmt(r.lpDet.Lp_cm,1)} cm = ${fmt(r.Lp,2)} m   ·   L_b informado = ${fmt(r.LbM,2)} m`,
+     ok: !r.avisoFlt,
+     n: r.avisoFlt
+        ? `Como L_b (${fmt(r.LbM,2)} m) é maior que L_p (${fmt(r.Lp,2)} m), a flambagem lateral com torção (FLT) pode reduzir M_rd abaixo do valor calculado adiante. Reduza o espaçamento entre travamentos ou peça verificação detalhada da FLT.`
+        : `Com L_b ≤ L_p a seção atinge o momento de plastificação sem flambar lateralmente: a FLT não governa e M_n pode ser tomado como M_pl (limitado pela FLM).`},
+    {id:"Mpl", t:"Momento de plastificação total da seção",
+     f:"M_pl = f_y · Z_x",
+     s:`M_pl = ${fmt(FY,2)} tf/cm² × ${fmt(p.Zx,1)} cm³ = ${fmt(md.Mpl*100,1)} tf·cm`,
+     r:`M_pl = ${fmt(md.Mpl,3)} tf·m = ${fmt(md.Mpl*KN_PER_TF,2)} kN·m`,
+     n:"Z_x é o módulo plástico: corresponde a toda a seção escoada, metade tracionada e metade comprimida. A divisão por 100 converte tf·cm em tf·m."},
+    {id:"lam", t:"Esbeltez da mesa comprimida (FLM)",
+     f:"λ = (b_f/2)/t_f      λ_p = 0,38·√(E/f_y)      λ_r = 0,83·√(E/(f_y − σ_r))",
+     s:`λ = (${fmt(p.bf,1)}/2)/${fmt(p.tf,2)}   ·   λ_p = 0,38·√(${fmt(E,0)}/${fmt(FY,2)})   ·   λ_r = 0,83·√(${fmt(E,0)}/${fmt(FY-SIGMA_R,3)})`,
+     r:`λ = ${fmt(md.lam,2)}     λ_p = ${fmt(md.lamP,2)}     λ_r = ${fmt(md.lamR,2)}   →  mesa ${md.regime}`,
+     n: md.regime === "compacta"
+        ? "Com λ ≤ λ_p a mesa é compacta: plastifica antes de flambar localmente, e a FLM não reduz o momento resistente."
+        : "Com λ entre λ_p e λ_r a mesa é semicompacta: o momento resistente cai linearmente entre M_pl e M_r (interpolação do passo seguinte)."},
+  ];
+  if(md.regime !== "compacta"){
+    passosFlexao.push(
+      {id:"Mr", t:"Momento de início do escoamento, já descontada a tensão residual",
+       f:"M_r = (f_y − σ_r) · W_x",
+       s:`M_r = (${fmt(FY,2)} − ${fmt(SIGMA_R,3)}) × ${fmt(p.Wx,1)}`,
+       r:`M_r = ${fmt(md.Mr,3)} tf·m`,
+       n:"W_x é o módulo elástico. A tensão residual de laminação antecipa o escoamento da mesa, por isso é subtraída de f_y."},
+      {id:"Mnflm", t:"Momento resistente nominal limitado pela FLM",
+       f:"M_n,FLM = M_pl − (M_pl − M_r)·(λ − λ_p)/(λ_r − λ_p)",
+       s:`M_n,FLM = ${fmt(md.Mpl,3)} − (${fmt(md.Mpl,3)} − ${fmt(md.Mr,3)})·(${fmt(md.lam,2)} − ${fmt(md.lamP,2)})/(${fmt(md.lamR,2)} − ${fmt(md.lamP,2)})`,
+       r:`M_n,FLM = ${fmt(md.Mnflm,3)} tf·m`}
+    );
+  } else {
+    passosFlexao.push(
+      {id:"Mnflm", t:"Momento resistente nominal limitado pela FLM",
+       f:"λ ≤ λ_p  →  M_n,FLM = M_pl",
+       s:`λ = ${fmt(md.lam,2)} ≤ λ_p = ${fmt(md.lamP,2)}`,
+       r:`M_n,FLM = ${fmt(md.Mnflm,3)} tf·m (sem redução)`}
+    );
+  }
+  passosFlexao.push(
+    {id:"Mn", t:"Momento resistente nominal (estado-limite que governa)",
+     f:"M_n = mín(M_pl, M_n,FLM)",
+     s:`M_n = mín(${fmt(md.Mpl,3)} ; ${fmt(md.Mnflm,3)})`,
+     r:`M_n = ${fmt(md.Mn,3)} tf·m   →  governa: ${md.governa}`},
+    {id:"Mrd", t:"Momento fletor resistente de cálculo",
+     f:"M_rd = M_n / CAL = M_n / 1,65",
+     s:`M_rd = ${fmt(md.Mn,3)} / 1,65`,
+     r:`M_rd = ${fmt(md.Mrd,3)} tf·m = ${fmt(md.Mrd*KN_PER_TF,2)} kN·m`,
+     n:"O divisor 1,65 é o coeficiente de segurança global adotado pela Tabela de Vãos e Cargas GERDAU, que compara resistências a esforços de serviço."}
   );
+  secoes.push({titulo:"Resistência à flexão (M_rd)", passos:passosFlexao});
 
-  const mplStep = mstep(
-    "Momento de plastificação — M<sub>pl</sub>",
-    "M<sub>pl</sub> = f<sub>y</sub> · Z<sub>x</sub>",
-    `M<sub>pl</sub> = ${fmt(FY,2)} tf/cm² × ${fmt(p.Zx,1)} cm³`,
-    `M<sub>pl</sub> = ${fmt(md.Mpl*100,1)} tf·cm = <strong>${fmt(md.Mpl,3)} tf·m</strong> (${fmt(md.Mpl*KN_PER_TF,2)} kN·m)`
-  );
+  secoes.push({titulo:"Resistência ao esforço cortante (V_rd)", passos:[
+    {id:"Aw", t:"Área efetiva de cisalhamento (alma)",
+     f:"A_w = d · t_w",
+     s:`A_w = ${fmt(vd.dCm,2)} cm × ${fmt(vd.twCm,3)} cm`,
+     r:`A_w = ${fmt(vd.Aw,2)} cm²`,
+     n:"Adota-se a altura total d (e não h) multiplicada pela espessura da alma, como faz o catálogo. d e t_w vêm em mm e são divididos por 10."},
+    {id:"Vpl", t:"Força cortante de plastificação da alma",
+     f:"V_pl = 0,60 · A_w · f_y",
+     s:`V_pl = 0,60 × ${fmt(vd.Aw,2)} × ${fmt(FY,2)}`,
+     r:`V_pl = ${fmt(vd.Vpl,3)} tf`,
+     n:"O fator 0,60 aproxima a tensão de escoamento ao cisalhamento (critério de von Mises: f_y/√3 ≈ 0,577·f_y). Almas de perfis laminados W/HP não são esbeltas, então não há redução adicional por flambagem da alma."},
+    {id:"Vrd", t:"Força cortante resistente de cálculo",
+     f:"V_rd = V_pl / 1,65",
+     s:`V_rd = ${fmt(vd.Vpl,3)} / 1,65`,
+     r:`V_rd = ${fmt(vd.Vrd,3)} tf = ${fmt(vd.Vrd*KN_PER_TF,2)} kN`},
+  ]});
 
-  const lamStep = mstep(
-    "Esbeltez da mesa (FLM) — λ, λ<sub>p</sub>, λ<sub>r</sub>",
-    "λ = (b<sub>f</sub>/2)/t<sub>f</sub> &nbsp; λ<sub>p</sub> = 0,38·√(E/f<sub>y</sub>) &nbsp; λ<sub>r</sub> = 0,83·√(E/(f<sub>y</sub>−σ<sub>r</sub>))",
-    `λ = (${fmt(p.bf,0)}/2)/${fmt(p.tf,1)} &nbsp; λ<sub>p</sub> = 0,38√(${fmt(E,0)}/${fmt(FY,2)}) &nbsp; λ<sub>r</sub> = 0,83√(${fmt(E,0)}/${fmt(FY-SIGMA_R,2)})`,
-    `λ = ${fmt(md.lam,2)} &nbsp; λ<sub>p</sub> = ${fmt(md.lamP,2)} &nbsp; λ<sub>r</sub> = ${fmt(md.lamR,2)}
-     <span class="cmp ok">→ mesa ${md.regime} ${md.regime==='compacta' ? '(λ ≤ λ_p → M_n,FLM = M_pl, sem redução)' : '(λ_p &lt; λ ≤ λ_r → interpolação)'}</span>`
-  );
+  secoes.push({titulo:"Verificação dos estados-limites últimos", passos:[
+    {id:"verM", t:"Flexão",
+     f:"M_sd ≤ M_rd ?",
+     s:`${fmt(r.Msd*KN_PER_TF,2)} kN·m ${r.okMomento ? "≤" : ">"} ${fmt(r.Mrd*KN_PER_TF,2)} kN·m`,
+     r:`Aproveitamento M_sd/M_rd = ${fmt(r.Msd/r.Mrd*100,1)} %  →  ${r.okMomento ? "OK" : "NÃO PASSA"}`,
+     ok:r.okMomento},
+    {id:"verV", t:"Cortante",
+     f:"V_sd ≤ V_rd ?",
+     s:`${fmt(r.Vsd*KN_PER_TF,2)} kN ${r.okCortante ? "≤" : ">"} ${fmt(r.Vrd*KN_PER_TF,2)} kN`,
+     r:`Aproveitamento V_sd/V_rd = ${fmt(r.Vsd/r.Vrd*100,1)} %  →  ${r.okCortante ? "OK" : "NÃO PASSA"}`,
+     ok:r.okCortante},
+  ]});
 
-  const mnflmStep = md.regime==='compacta' ? "" : mstep(
-    "Momento resistido por FLM — M<sub>n,FLM</sub>",
-    "M<sub>r</sub> = (f<sub>y</sub> − σ<sub>r</sub>)·W<sub>x</sub> &nbsp; M<sub>n,FLM</sub> = M<sub>pl</sub> − (M<sub>pl</sub>−M<sub>r</sub>)·(λ−λ<sub>p</sub>)/(λ<sub>r</sub>−λ<sub>p</sub>)",
-    `M<sub>r</sub> = ${fmt(FY-SIGMA_R,2)} × ${fmt(p.Wx,1)} = ${fmt(md.Mr,3)} tf·m`,
-    `M<sub>n,FLM</sub> = <strong>${fmt(md.Mnflm,3)} tf·m</strong>`
-  );
-
-  const mrdStep = mstep(
-    "Momento fletor resistente de cálculo — M<sub>rd</sub>",
-    "M<sub>rd</sub> = min(M<sub>pl</sub>, M<sub>n,FLM</sub>) / 1,65",
-    `M<sub>rd</sub> = min(${fmt(md.Mpl,3)}, ${fmt(md.Mnflm,3)}) / 1,65 &nbsp; <span style="color:var(--muted)">[governa: ${md.governa}]</span>`,
-    `M<sub>rd</sub> = <strong>${fmt(md.Mrd,3)} tf·m = ${fmt(md.Mrd*KN_PER_TF,2)} kN·m</strong>`
-  );
-
-  const vrdStep = mstep(
-    "Força cortante resistente — V<sub>rd</sub>",
-    "A<sub>w</sub> = d·t<sub>w</sub> &nbsp; V<sub>pl</sub> = 0,6·A<sub>w</sub>·f<sub>y</sub> &nbsp; V<sub>rd</sub> = V<sub>pl</sub>/1,65",
-    `A<sub>w</sub> = ${fmt(vd.dCm,2)} × ${fmt(vd.twCm,2)} = ${fmt(vd.Aw,2)} cm² &nbsp; V<sub>pl</sub> = 0,6 × ${fmt(vd.Aw,2)} × ${fmt(FY,2)}`,
-    `V<sub>rd</sub> = ${fmt(vd.Vpl,3)} / 1,65 = <strong>${fmt(vd.Vrd,3)} tf = ${fmt(vd.Vrd*KN_PER_TF,2)} kN</strong>`
-  );
+  if(r.flechaCm !== null){
+    secoes.push({titulo:"Verificação do estado-limite de serviço (flecha)", passos:[
+      {id:"flecha", t:"Deslocamento máximo sob a carga variável",
+       f:"δ = e · P_var · L³ / (E · I_x)",
+       s:`δ = ${fmt(pat.e,4)} × ${fmt(r.cargaVar,4)} × ${fmt(r.Lcm,1)}³ / (${fmt(E,0)} × ${fmt(p.Ix,0)})`,
+       r:`δ = ${fmt(r.flechaCm,3)} cm = ${fmt(r.flechaCm*10,1)} mm`,
+       n:"Tudo em tf e cm: P_var em tf, L em cm, E em tf/cm² e I_x em cm⁴ — o resultado sai em cm."},
+      {id:"flechaLim", t:"Deslocamento admissível",
+       f:`δ_lim = L / ${r.limiteFlechaFrac}`,
+       s:`δ_lim = ${fmt(r.Lcm,1)} / ${r.limiteFlechaFrac}`,
+       r:`δ_lim = ${fmt(r.flechaLimCm,3)} cm = ${fmt(r.flechaLimCm*10,1)} mm`,
+       n:"Limite escolhido pelo usuário conforme a Tabela C.1 da NBR 8800:2008 (L/180 terças, L/250 vigas de cobertura, L/350 vigas de piso)."},
+      {id:"verFlecha", t:"Flecha",
+       f:"δ ≤ δ_lim ?",
+       s:`${fmt(r.flechaCm,3)} cm ${r.okFlecha ? "≤" : ">"} ${fmt(r.flechaLimCm,3)} cm`,
+       r:`Aproveitamento δ/δ_lim = ${fmt(r.flechaCm/r.flechaLimCm*100,1)} %  →  ${r.okFlecha ? "OK" : "NÃO PASSA"}`,
+       ok:r.okFlecha},
+    ]});
+  }
 
   const errM = (r.Mrd - r.MrdCat) / r.MrdCat * 100;
   const errV = (r.Vrd - r.VrdCat) / r.VrdCat * 100;
-  const confStep = mstep(
-    "Conferência com a tabela impressa (TVPA1 / TCPA, coluna M<sub>RD ASD</sub> e Q<sub>VRD ASD</sub>)",
-    "M<sub>rd,tabela</sub> — direto da coluna \"M RD ASD\" &nbsp; V<sub>rd,tabela</sub> = Q<sub>VRD ASD</sub> / 2",
-    `M<sub>rd</sub> calculado = ${fmt(r.Mrd,3)} tf·m &nbsp; vs. tabela = ${fmt(r.MrdCat,2)} tf·m`,
-    `Δ M<sub>rd</sub> = <strong>${errM>=0?'+':''}${fmt(errM,1)}%</strong> &nbsp;|&nbsp; Δ V<sub>rd</sub> = <strong>${errV>=0?'+':''}${fmt(errV,1)}%</strong> ${okBadge(Math.abs(errM)<2 && Math.abs(errV)<2)}`
-  );
+  secoes.push({titulo:"Conferência com a tabela impressa GERDAU (TVPA1)", passos:[
+    {id:"conf", t:"Comparação com os valores publicados para este perfil",
+     f:"M_rd,tabela — coluna \"M RD ASD\"      V_rd,tabela = Q_VRD ASD / 2",
+     s:`M_rd: ${fmt(r.Mrd,3)} calculado vs. ${fmt(r.MrdCat,2)} da tabela   ·   V_rd: ${fmt(r.Vrd,3)} calculado vs. ${fmt(r.VrdCat,2)} da tabela (tf)`,
+     r:`Δ M_rd = ${errM>=0?"+":""}${fmt(errM,1)} %     Δ V_rd = ${errV>=0?"+":""}${fmt(errV,1)} %`,
+     ok: Math.abs(errM) < 2 && Math.abs(errV) < 2,
+     n:"Q_VRD ASD da tabela é o cortante somado dos dois apoios; por isso é dividido por 2 para comparar com o V_rd por apoio calculado aqui. Diferenças de até ~2 % vêm de arredondamentos das propriedades geométricas publicadas."},
+  ]});
 
-  const ppStep = mstep(
-    "Peso próprio distribuído — p<sub>p</sub>",
-    "p<sub>p</sub> = massa / 1000",
-    `p<sub>p</sub> = ${fmt(p.massa,1)} kg/m / 1000`,
-    `p<sub>p</sub> = <strong>${fmt(r.ppTfm,4)} tf/m</strong> (${fmt(r.ppTfm*KN_PER_TF,3)} kN/m)`
-  );
+  const numeros = numerarPassos(secoes);
+  const nd = id => `Passo ${numeros[id] || "—"}`;
 
-  const msdStep = mstep(
-    `Momento solicitante — M<sub>sd</sub> (${pat.label.toLowerCase()}, a = ${fmt(pat.a,3)})`,
-    "M<sub>sd</sub> = p<sub>p</sub>·L² / 8 + a·P·L",
-    `M<sub>sd</sub> = ${fmt(r.ppTfm,4)} × ${fmt(r.vaoM,2)}² / 8 + ${fmt(pat.a,3)} × ${fmt(r.cargaUtilTf,3)} × ${fmt(r.vaoM,2)}`,
-    `M<sub>sd</sub> = ${fmt(r.Mpp,3)} + ${fmt(r.Mutil,3)} = <strong>${fmt(r.Msd,3)} tf·m = ${fmt(r.Msd*KN_PER_TF,2)} kN·m</strong>`
-  );
-
-  const vsdStep = mstep(
-    `Cortante solicitante — V<sub>sd</sub> (c = ${fmt(pat.c,3)})`,
-    "V<sub>sd</sub> = p<sub>p</sub>·L / 2 + c·P",
-    `V<sub>sd</sub> = ${fmt(r.ppTfm,4)} × ${fmt(r.vaoM,2)} / 2 + ${fmt(pat.c,3)} × ${fmt(r.cargaUtilTf,3)}`,
-    `V<sub>sd</sub> = ${fmt(r.Vpp,3)} + ${fmt(r.Vutil,3)} = <strong>${fmt(r.Vsd,3)} tf = ${fmt(r.Vsd*KN_PER_TF,2)} kN</strong>`
-  );
-
-  const verifMomento = mstep(
-    "Verificação — momento",
-    "M<sub>sd</sub> ≤ M<sub>rd</sub> ?",
-    `${fmt(r.Msd*KN_PER_TF,2)} kN·m ≤ ${fmt(r.Mrd*KN_PER_TF,2)} kN·m`,
-    `<strong>${r.okMomento?'✓ OK':'✗ NÃO PASSA'}</strong> ${okBadge(r.okMomento)}`
-  );
-  const verifCortante = mstep(
-    "Verificação — cortante",
-    "V<sub>sd</sub> ≤ V<sub>rd</sub> ?",
-    `${fmt(r.Vsd*KN_PER_TF,2)} kN ≤ ${fmt(r.Vrd*KN_PER_TF,2)} kN`,
-    `<strong>${r.okCortante?'✓ OK':'✗ NÃO PASSA'}</strong> ${okBadge(r.okCortante)}`
-  );
-
-  let flechaSection = "";
-  if(r.flechaCm!==null){
-    const flechaStep = mstep(
-      `Flecha sob carga variável — δ (limite L/${r.limiteFlechaFrac})`,
-      "δ = e · P<sub>var</sub> · L³ / (E · I<sub>x</sub>)",
-      `δ = ${fmt(pat.e,4)} × ${fmt(r.cargaVar,3)} × ${fmt(r.Lcm,0)}³ / (${fmt(E,0)} × ${fmt(p.Ix,0)})`,
-      `δ = <strong>${fmt(r.flechaCm,3)} cm</strong> &nbsp; limite = L/${r.limiteFlechaFrac} = <strong>${fmt(r.flechaLimCm,3)} cm</strong>`
-    );
-    const verifFlecha = mstep(
-      "Verificação — flecha",
-      "δ ≤ L / x ?",
-      `${fmt(r.flechaCm,3)} cm ≤ ${fmt(r.flechaLimCm,3)} cm`,
-      `<strong>${r.okFlecha?'✓ OK':'✗ NÃO PASSA'}</strong> ${okBadge(r.okFlecha)}`
-    );
-    flechaSection = `<div class="msection"><h4>5 · Flecha</h4>${flechaStep}${verifFlecha}</div>`;
+  const saidas = [
+    ["M_sd", "Momento fletor solicitante (peso próprio + carga)", `${fmt(r.Msd,3)} tf·m = ${fmt(r.Msd*KN_PER_TF,2)} kN·m`, nd("Msd")],
+    ["V_sd", "Força cortante solicitante por apoio", `${fmt(r.Vsd,3)} tf = ${fmt(r.Vsd*KN_PER_TF,2)} kN`, nd("Vsd")],
+    ["L_p", "Comprimento destravado limite", `${fmt(r.Lp,2)} m`, nd("Lp")],
+    ["M_rd", "Momento fletor resistente de cálculo", `${fmt(r.Mrd,3)} tf·m = ${fmt(r.Mrd*KN_PER_TF,2)} kN·m`, nd("Mrd")],
+    ["V_rd", "Força cortante resistente de cálculo", `${fmt(r.Vrd,3)} tf = ${fmt(r.Vrd*KN_PER_TF,2)} kN`, nd("Vrd")],
+  ];
+  if(r.flechaCm !== null){
+    saidas.push(["δ", "Flecha sob a carga variável", `${fmt(r.flechaCm,3)} cm`, nd("flecha")]);
+    saidas.push(["δ_lim", "Flecha admissível", `${fmt(r.flechaLimCm,3)} cm`, nd("flechaLim")]);
   }
+  saidas.push(["massa", "Consumo de aço do perfil", `${fmt(p.massa,1)} kg/m  →  ${fmt(p.massa*r.vaoM,1)} kg na viga de ${fmt(r.vaoM,2)} m`, "propriedade do perfil × vão"]);
 
-  const exportSection = `<div class="msection">
-    <h4>6 · Exportar</h4>
+  const sit = ok => ok ? "ATENDE" : "NÃO ATENDE";
+  const resumo = [
+    ["Flexão (M)", `M_sd = ${fmt(r.Msd*KN_PER_TF,2)} kN·m`, `M_rd = ${fmt(r.Mrd*KN_PER_TF,2)} kN·m`,
+      `${fmt(r.Msd/r.Mrd*100,1)} %`, sit(r.okMomento)],
+    ["Cortante (V)", `V_sd = ${fmt(r.Vsd*KN_PER_TF,2)} kN`, `V_rd = ${fmt(r.Vrd*KN_PER_TF,2)} kN`,
+      `${fmt(r.Vsd/r.Vrd*100,1)} %`, sit(r.okCortante)],
+  ];
+  if(r.flechaCm !== null){
+    resumo.push(["Flecha (ELS)", `δ = ${fmt(r.flechaCm,3)} cm`, `δ_lim = ${fmt(r.flechaLimCm,3)} cm (L/${r.limiteFlechaFrac})`,
+      `${fmt(r.flechaCm/r.flechaLimCm*100,1)} %`, sit(r.okFlecha)]);
+  }
+  // aqui não cabe "aproveitamento": Lb/Lp não é uma razão de esforço, é uma condição de contorno
+  resumo.push(["Travamento lateral (FLT)", `L_b = ${fmt(r.LbM,2)} m`, `L_p = ${fmt(r.Lp,2)} m`,
+    "—", r.avisoFlt ? "VERIFICAR FLT" : "ATENDE"]);
+
+  const conclusao = r.ok
+    ? `O perfil ${p.bitola} (${fmt(p.massa,1)} kg/m) atende a todas as verificações para os dados de entrada informados` +
+      (r.avisoFlt ? ", ressalvada a flambagem lateral com torção (L_b > L_p), que deve ser verificada em detalhe." : ".")
+    : `O perfil ${p.bitola} NÃO atende a todas as verificações para os dados de entrada informados.`;
+
+  return {
+    modo:"viga",
+    titulo:"Memorial de cálculo — viga sob flexão",
+    perfil:p,
+    subtitulo:`NBR 8800:2008 · ${pat.label} · L = ${fmt(r.vaoM,2)} m · P = ${fmt(cargaKN,2)} kN · L_b = ${fmt(r.LbM,2)} m` +
+              (r.limiteFlechaFrac ? ` · flecha L/${r.limiteFlechaFrac}` : " · flecha não verificada"),
+    entradas, constantes, props, resumo, secoes, saidas, conclusao, ok:r.ok,
+    legendaDiagrama: `Diagrama de carregamento, força cortante e momento fletor — ${pat.label.toLowerCase()}, vão de ${fmt(r.vaoM,2)} m, carga de ${fmt(cargaKN,2)} kN (valores da carga aplicada, sem o peso próprio)`,
+  };
+}
+
+/* ---------------- modelo: coluna (compressão axial) ---------------- */
+
+function modeloColuna(r){
+  const p = r.perfil, nc = r.nc;
+  const cargaKN = r.cargaAxialTf*KN_PER_TF;
+  const rotulo = {"0.65":"engastada-engastada","0.8":"engastada-rotulada","1":"rotulada-rotulada","1.2":"engastada-livre com translação","2":"engastada-livre (balanço)"};
+  const rotK = k => rotulo[String(k)] || "condição informada";
+
+  const entradas = [
+    ["N_sd", "Carga axial de compressão atuante", `${fmt(cargaKN,2)} kN`, "informado pelo usuário"],
+    ["L_x", "Comprimento destravado — flambagem em torno de x-x", `${fmt(r.LxM,2)} m`, "informado pelo usuário"],
+    ["K_x", "Coeficiente de flambagem — x-x", `${fmt(r.Kx,2)} (${rotK(r.Kx)})`, "NBR 8800:2008, Anexo E"],
+    ["L_y", "Comprimento destravado — flambagem em torno de y-y", `${fmt(r.LyM,2)} m`, "informado pelo usuário"],
+    ["K_y", "Coeficiente de flambagem — y-y", `${fmt(r.Ky,2)} (${rotK(r.Ky)})`, "NBR 8800:2008, Anexo E"],
+    ["—", "Perfil verificado", p.bitola, "escolhido entre os 108 perfis W/HP da base"],
+  ];
+
+  const constantes = [
+    ["f_y", "Resistência ao escoamento do aço", "3,45 tf/cm² = 34,5 kN/cm² = 345 MPa", "ASTM A572 Gr.50"],
+    ["E", "Módulo de elasticidade do aço", "2000 tf/cm² ≈ 200 GPa", "NBR 8800:2008, item 4.5.2"],
+    ["CAL", "Coeficiente de segurança global", "1,65", "critério da tabela GERDAU"],
+    ["(KL/r)_lim", "Esbeltez máxima admitida em compressão", "200", "NBR 8800:2008, item 3.3.4"],
+    ["g", "Conversão kN ↔ tf", "1 tf = 9,80665 kN", "SI"],
+  ];
+
+  const props = [
+    ["d", "Altura total do perfil", `${fmt(p.d,1)} mm`],
+    ["b_f", "Largura da mesa", `${fmt(p.bf,1)} mm`],
+    ["t_f", "Espessura da mesa", `${fmt(p.tf,2)} mm`],
+    ["t_w", "Espessura da alma", `${fmt(p.tw,2)} mm`],
+    ["h", "Altura da alma", `${fmt(p.h,1)} mm`],
+    ["A", "Área bruta da seção", `${fmt(p.A,2)} cm²`],
+    ["r_x", "Raio de giração — x-x", `${fmt(p.rx,2)} cm`],
+    ["r_y", "Raio de giração — y-y", `${fmt(p.ry,2)} cm`],
+    ["massa", "Massa linear do perfil", `${fmt(p.massa,1)} kg/m`],
+  ];
+
+  const secoes = [];
+
+  secoes.push({titulo:"Conversão das entradas para as unidades de cálculo", passos:[
+    {id:"N", t:"Carga axial, de kN para tf",
+     f:"N_sd(tf) = N_sd(kN) / 9,80665",
+     s:`N_sd = ${fmt(cargaKN,2)} / 9,80665`,
+     r:`N_sd = ${fmt(r.cargaAxialTf,4)} tf`,
+     n:"O peso próprio da coluna é desprezado nesta verificação, por ser pequeno frente à carga normal transmitida."},
+    {id:"KLx", t:"Comprimento de flambagem em torno de x-x",
+     f:"KL_x = K_x · L_x · 100",
+     s:`KL_x = ${fmt(r.Kx,2)} × ${fmt(r.LxM,2)} m × 100`,
+     r:`KL_x = ${fmt(r.KLxCm,1)} cm`},
+    {id:"KLy", t:"Comprimento de flambagem em torno de y-y",
+     f:"KL_y = K_y · L_y · 100",
+     s:`KL_y = ${fmt(r.Ky,2)} × ${fmt(r.LyM,2)} m × 100`,
+     r:`KL_y = ${fmt(r.KLyCm,1)} cm`,
+     n:"K traduz as condições de apoio do trecho em comprimento equivalente biarticulado. Os dois eixos podem ter travamentos e condições diferentes."},
+  ]});
+
+  secoes.push({titulo:"Propriedades derivadas do perfil", passos:[
+    {id:"Ix", t:"Momento de inércia em torno de x-x",
+     f:"I_x = r_x² · A",
+     s:`I_x = ${fmt(p.rx,2)}² × ${fmt(p.A,2)}`,
+     r:`I_x = ${fmt(nc.Ix_cm4,0)} cm⁴`,
+     n:"Recalculado a partir do raio de giração publicado, para manter coerência interna entre r, A e I nas fórmulas seguintes."},
+    {id:"Iy", t:"Momento de inércia em torno de y-y",
+     f:"I_y = r_y² · A",
+     s:`I_y = ${fmt(p.ry,2)}² × ${fmt(p.A,2)}`,
+     r:`I_y = ${fmt(nc.Iy_cm4,0)} cm⁴`},
+  ]});
+
+  secoes.push({titulo:"Flambagem local: fator de redução Q", passos:[
+    {id:"Qs", t:"Mesa sob compressão uniforme — Q_s",
+     f:"λ = (b_f/2)/t_f      λ_r = 0,56·√(E/f_y)",
+     s:`λ = (${fmt(p.bf,1)}/2)/${fmt(p.tf,2)} = ${fmt(nc.qs.lam,2)}     λ_r = ${fmt(nc.qs.lamR,2)}`,
+     r:`Q_s = ${fmt(nc.qs.Qs,3)} ${nc.qs.Qs===1 ? "(mesa não-esbelta)" : "(mesa esbelta: há redução)"}`,
+     n:"Os limites de esbeltez em compressão uniforme são mais severos que os usados na flexão, porque toda a mesa está comprimida — daí 0,56·√(E/f_y) e não 0,38·√(E/f_y)."},
+    {id:"Qa", t:"Alma sob compressão uniforme — Q_a",
+     f:"λ = h/t_w      λ_r = 1,49·√(E/f_y)",
+     s:`λ = ${fmt(p.h,1)}/${fmt(p.tw,2)} = ${fmt(nc.qa.lam,2)}     λ_r = ${fmt(nc.qa.lamR,2)}`,
+     r:`Q_a = ${fmt(nc.qa.Qa,3)} ${nc.qa.Qa===1 ? "(alma não-esbelta)" : `(área efetiva ${fmt(nc.qa.Aef,2)} cm² de ${fmt(p.A,2)} cm²)`}`,
+     n: nc.qa.Qa===1
+        ? "Alma abaixo do limite: toda a área contribui, Q_a = 1."
+        : "Alma esbelta: parte da chapa sai de serviço antes do escoamento. Adota-se a largura efetiva com f = f_y (cálculo não-iterativo, a favor da segurança)."},
+    {id:"Q", t:"Fator de seção total",
+     f:"Q = Q_s · Q_a",
+     s:`Q = ${fmt(nc.qs.Qs,3)} × ${fmt(nc.qa.Qa,3)}`,
+     r:`Q = ${fmt(nc.Q,3)}`},
+  ]});
+
+  secoes.push({titulo:"Flambagem global e esbeltez", passos:[
+    {id:"Ne", t:"Cargas críticas de flambagem elástica (Euler)",
+     f:"N_ex = π²·E·I_x/(K_x L_x)²      N_ey = π²·E·I_y/(K_y L_y)²",
+     s:`N_ex = π²×${fmt(E,0)}×${fmt(nc.Ix_cm4,0)}/${fmt(r.KLxCm,1)}²   ·   N_ey = π²×${fmt(E,0)}×${fmt(nc.Iy_cm4,0)}/${fmt(r.KLyCm,1)}²`,
+     r:`N_ex = ${fmt(nc.Nex,2)} tf     N_ey = ${fmt(nc.Ney,2)} tf     N_e = mín = ${fmt(nc.Ne,2)} tf  (governa o eixo ${nc.eixoGovernante})`,
+     n:"Vale o menor dos dois: a coluna flamba no eixo mais fraco disponível, considerando também os travamentos de cada direção."},
+    {id:"esb", t:"Índices de esbeltez geométricos",
+     f:"λ_x = KL_x/r_x      λ_y = KL_y/r_y      limite 200",
+     s:`λ_x = ${fmt(r.KLxCm,1)}/${fmt(p.rx,2)} = ${fmt(nc.lambdaKLx,1)}     λ_y = ${fmt(r.KLyCm,1)}/${fmt(p.ry,2)} = ${fmt(nc.lambdaKLy,1)}`,
+     r:`KL/r máximo = ${fmt(nc.esbeltezMax,1)}  (limite 200)`,
+     ok:r.esbeltezOk,
+     n:"Limite construtivo da NBR 8800:2008, item 3.3.4: acima de 200 a peça é esbelta demais para uso como elemento comprimido, mesmo que a conta de resistência feche."},
+    {id:"lambda0", t:"Índice de esbeltez reduzido",
+     f:"λ₀ = √(Q · A · f_y / N_e)",
+     s:`λ₀ = √(${fmt(nc.Q,3)} × ${fmt(p.A,2)} × ${fmt(FY,2)} / ${fmt(nc.Ne,2)})`,
+     r:`λ₀ = ${fmt(nc.lambda0,3)}`,
+     n:"Compara a resistência ao escoamento da seção efetiva com a carga crítica elástica: λ₀ pequeno indica ruína por escoamento, λ₀ grande indica ruína por flambagem."},
+    {id:"chi", t:"Fator de redução por flambagem global",
+     f: nc.lambda0 <= 1.5 ? "λ₀ ≤ 1,5  →  χ = 0,658^(λ₀²)" : "λ₀ > 1,5  →  χ = 0,877/λ₀²",
+     s: nc.lambda0 <= 1.5 ? `χ = 0,658^(${fmt(nc.lambda0,3)}²)` : `χ = 0,877/${fmt(nc.lambda0,3)}²`,
+     r:`χ = ${fmt(nc.chi,4)}`,
+     n:"O primeiro ramo cobre a flambagem inelástica (com tensões residuais); o segundo, a flambagem elástica de Euler afetada por imperfeições."},
+  ]});
+
+  secoes.push({titulo:"Resistência à compressão e verificação", passos:[
+    {id:"Nn", t:"Força axial resistente nominal",
+     f:"N_n = χ · Q · A · f_y",
+     s:`N_n = ${fmt(nc.chi,4)} × ${fmt(nc.Q,3)} × ${fmt(p.A,2)} × ${fmt(FY,2)}`,
+     r:`N_n = ${fmt(nc.Nn,3)} tf`},
+    {id:"NcRd", t:"Força axial resistente de cálculo",
+     f:"N_c,Rd = N_n / 1,65",
+     s:`N_c,Rd = ${fmt(nc.Nn,3)} / 1,65`,
+     r:`N_c,Rd = ${fmt(nc.NcRd,3)} tf = ${fmt(nc.NcRd*KN_PER_TF,2)} kN`},
+    {id:"verN", t:"Verificação da compressão axial",
+     f:"N_sd ≤ N_c,Rd ?",
+     s:`${fmt(cargaKN,2)} kN ${r.okAxial ? "≤" : ">"} ${fmt(nc.NcRd*KN_PER_TF,2)} kN`,
+     r:`Aproveitamento N_sd/N_c,Rd = ${fmt(r.cargaAxialTf/nc.NcRd*100,1)} %  →  ${r.okAxial ? "OK" : "NÃO PASSA"}`,
+     ok:r.okAxial},
+  ]});
+
+  const numeros = numerarPassos(secoes);
+  const nd = id => `Passo ${numeros[id] || "—"}`;
+
+  const saidas = [
+    ["Q", "Fator de redução por flambagem local", fmt(nc.Q,3), nd("Q")],
+    ["N_e", `Carga crítica elástica (eixo ${nc.eixoGovernante})`, `${fmt(nc.Ne,2)} tf = ${fmt(nc.Ne*KN_PER_TF,1)} kN`, nd("Ne")],
+    ["λ₀", "Índice de esbeltez reduzido", fmt(nc.lambda0,3), nd("lambda0")],
+    ["χ", "Fator de redução por flambagem global", fmt(nc.chi,4), nd("chi")],
+    ["KL/r", "Esbeltez geométrica máxima", `${fmt(nc.esbeltezMax,1)} (limite 200)`, nd("esb")],
+    ["N_c,Rd", "Força axial de compressão resistente", `${fmt(nc.NcRd,3)} tf = ${fmt(nc.NcRd*KN_PER_TF,2)} kN`, nd("NcRd")],
+    ["massa", "Consumo de aço do perfil", `${fmt(p.massa,1)} kg/m  →  ${fmt(p.massa*Math.max(r.LxM,r.LyM),1)} kg no trecho mais longo`, "propriedade do perfil × comprimento"],
+  ];
+
+  const sitC = ok => ok ? "ATENDE" : "NÃO ATENDE";
+  const resumo = [
+    ["Compressão axial (N)", `N_sd = ${fmt(cargaKN,2)} kN`, `N_c,Rd = ${fmt(nc.NcRd*KN_PER_TF,2)} kN`,
+      `${fmt(r.cargaAxialTf/nc.NcRd*100,1)} %`, sitC(r.okAxial)],
+    ["Esbeltez (KL/r)", `${fmt(nc.esbeltezMax,1)} (eixo ${nc.eixoGovernante})`, "limite 200",
+      `${fmt(nc.esbeltezMax/200*100,1)} %`, sitC(r.esbeltezOk)],
+  ];
+
+  const conclusao = r.ok
+    ? `O perfil ${p.bitola} (${fmt(p.massa,1)} kg/m) resiste à carga axial informada e respeita o limite de esbeltez.`
+    : `O perfil ${p.bitola} NÃO atende: ${!r.okAxial ? "a resistência à compressão é insuficiente" : ""}${(!r.okAxial && !r.esbeltezOk) ? " e " : ""}${!r.esbeltezOk ? "a esbeltez KL/r ultrapassa 200" : ""}.`;
+
+  return {
+    modo:"coluna",
+    titulo:"Memorial de cálculo — coluna sob compressão axial",
+    perfil:p,
+    subtitulo:`NBR 8800:2008 · N_sd = ${fmt(cargaKN,2)} kN · KL_x = ${fmt(r.KLxCm/100,2)} m · KL_y = ${fmt(r.KLyCm/100,2)} m`,
+    entradas, constantes, props, resumo, secoes, saidas, conclusao, ok:r.ok,
+    legendaDiagrama: `Esquema da coluna — carga axial de ${fmt(cargaKN,2)} kN, comprimentos destravados e forma de flambagem em cada eixo`,
+  };
+}
+
+function numerarPassos(secoes){
+  const numeros = {};
+  let n = 0;
+  secoes.forEach((sec, si)=>{
+    sec.num = si + 1;
+    sec.passos.forEach(ps=>{ n++; ps.num = n; if(ps.id) numeros[ps.id] = n; });
+  });
+  return numeros;
+}
+
+function modeloDe(r){
+  return currentMode === "coluna" ? modeloColuna(r) : modeloViga(r);
+}
+
+/* ---------------- memorial em HTML (tela + relatório PDF) ---------------- */
+
+function mtabela(cabecalho, linhas, classes){
+  const th = cabecalho.map(c=>`<th>${c}</th>`).join("");
+  const tr = linhas.map(l=>`<tr>${l.map((c,i)=>`<td class="${classes[i]||""}">${mathHtml(c)}</td>`).join("")}</tr>`).join("");
+  return `<div class="mtable-wrap"><table class="mtable"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></div>`;
+}
+
+function renderModeloHtml(model, idx, opts){
+  const comExportar = !(opts && opts.exportar === false);
+  const secoesHtml = model.secoes.map(sec=>{
+    const passos = sec.passos.map(ps=>`
+      <div class="mstep">
+        <div class="mtitle">Passo ${ps.num} · ${mathHtml(ps.t)}</div>
+        <div class="mformula">${mathHtml(ps.f)}</div>
+        <div class="msub">${mathHtml(ps.s)}</div>
+        <div class="mres">${mathHtml(ps.r)}${ps.ok===undefined ? "" : " " + okBadge(ps.ok)}</div>
+        ${ps.n ? `<div class="mnote">${mathHtml(ps.n)}</div>` : ""}
+      </div>`).join("");
+    return `<div class="msection"><h4>${model.secoes.length ? sec.num + " · " : ""}${mathHtml(sec.titulo)}</h4>${passos}</div>`;
+  }).join("");
+
+  // no relatório impresso os botões não são emitidos: em papel não há o que exportar
+  const exportSection = !comExportar ? "" : `<div class="msection no-print">
+    <h4>Exportar este memorial</h4>
     <div class="smath-actions">
       <button class="smath-btn" type="button" data-idx="${idx}">⇪ Exportar para SMath Studio</button>
-      <button class="word-btn" type="button" data-widx="${idx}">📄 Exportar para Word</button>
-      <button class="pdf-btn" type="button" data-pidx="${idx}">🖨 Exportar para PDF</button>
+      <button class="word-btn" type="button" data-widx="${idx}">📄 Relatório Word (.docx)</button>
+      <button class="pdf-btn" type="button" data-pidx="${idx}">🖨 Relatório PDF</button>
       <span class="dl-status" data-dlstatus-txt="${idx}"></span>
     </div>
   </div>`;
 
+  const resumoHtml = !model.resumo ? "" : `<div class="msection"><h4>Resumo da verificação</h4>
+    ${mtabela(["Verificação","Solicitante","Resistente / limite","Aproveitamento","Situação"], model.resumo, ["","val","val","val","sit"])}</div>`;
+
   return `
-    <div class="msection"><h4>Propriedades do perfil</h4>${propsHtml}</div>
-    <div class="msection"><h4>1 · Comprimento destravado (L<sub>p</sub>)</h4>${lpStep}</div>
-    <div class="msection"><h4>2 · Momento fletor resistente (M<sub>rd</sub>)</h4>${mplStep}${lamStep}${mnflmStep}${mrdStep}</div>
-    <div class="msection"><h4>3 · Força cortante resistente (V<sub>rd</sub>)</h4>${vrdStep}${confStep}</div>
-    <div class="msection"><h4>4 · Esforços solicitantes (M<sub>sd</sub>, V<sub>sd</sub>)</h4>${ppStep}${msdStep}${vsdStep}${verifMomento}${verifCortante}</div>
-    ${flechaSection}
+    ${resumoHtml}
+    <div class="msection"><h4>A · Variáveis de entrada (informadas)</h4>
+      ${mtabela(["Símbolo","Descrição","Valor","Origem"], model.entradas, ["sym","","val","src"])}</div>
+    <div class="msection"><h4>B · Constantes e critérios adotados</h4>
+      ${mtabela(["Símbolo","Descrição","Valor","Fonte"], model.constantes, ["sym","","val","src"])}</div>
+    <div class="msection"><h4>C · Propriedades do perfil ${model.perfil.bitola} (tabela GERDAU)</h4>
+      ${mtabela(["Símbolo","Descrição","Valor"], model.props, ["sym","","val"])}</div>
+    ${secoesHtml}
+    <div class="msection"><h4>D · Resumo das variáveis de saída</h4>
+      ${mtabela(["Símbolo","Descrição","Valor obtido","Onde foi obtido"], model.saidas, ["sym","","val","src"])}
+      <div class="mconclusao ${model.ok ? "ok" : "fail"}">${mathHtml(model.conclusao)}</div></div>
     ${exportSection}
   `;
 }
+
+function renderMemorial(r, idx, opts){ return renderModeloHtml(modeloViga(r), idx, opts); }
 
 function render(resultados){
   els.cards.innerHTML = "";
   if(resultados.length === 0){
     els.resMeta.textContent = "";
     els.moreBtn.hidden = true;
+    currentResults = [];
+    sincronizarSelecao();
     els.cards.innerHTML = `<div class="empty">
       <h3>Nenhum perfil atende</h3>
       <p>Nenhum dos 108 perfis da base passa em momento, cortante e flecha para os valores informados.</p>
@@ -903,6 +1227,7 @@ function render(resultados){
           <span class="massa">${fmt(p.massa,1)} kg/m</span>
         </div>
         ${i===0 ? '<span class="badge">Mais leve que atende</span>' : `<span class="rank">#${i+1}</span>`}
+        <button class="select-btn" type="button" data-selidx="${i}" title="Usar este perfil nos relatórios PDF e Word">Selecionar</button>
         <button class="card-min-btn" type="button" title="Minimizar este perfil" aria-label="Minimizar este perfil">⌄</button>
       </div>
       <div class="profile-fig">${buildProfileSvg(p)}</div>
@@ -922,15 +1247,16 @@ function render(resultados){
         ${flechaCheck}
       </div>
       ${fltNote}
-      <details class="memorial" ${i===0 ? "open" : ""}>
-        <summary>Ver memorial de cálculo completo</summary>
-        <div class="memorial-body">${renderMemorial(r, i)}</div>
+      <details class="memorial" data-midx="${i}" ${i===0 ? "open" : ""}>
+        <summary>Ver memorial de cálculo completo — entradas, passo a passo e saídas</summary>
+        <div class="memorial-body">${i===0 ? renderMemorial(r, i) : ""}</div>
       </details>
     `;
     els.cards.appendChild(card);
   });
   els.moreBtn.hidden = resultados.length <= shown;
   refreshDownloadButtons();
+  sincronizarSelecao();
 }
 
 function buildSMathExportColuna(r){
@@ -1080,91 +1406,135 @@ function wPara(text, opts={}){
   return `<w:p><w:pPr>${pPr}<w:rPr>${rPr}</w:rPr></w:pPr><w:r><w:rPr>${rPr}</w:rPr><w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r></w:p>`;
 }
 
-function buildWordParasViga(r){
-  const p = r.perfil, md = r.mrdDet, vd = r.vrdDet, pat = r.pat;
-  const errM = ((r.Mrd - r.MrdCat) / r.MrdCat * 100).toFixed(1);
+/* --- tabelas no Word: largura útil = 11906 − 2×1134 = 9638 twips --- */
+const W_PAGE = 9638;
+
+function wCell(text, largura, opts={}){
+  const {bold=false, size=17, shade=null, align=null} = opts;
+  const shd = shade ? `<w:shd w:val="clear" w:color="auto" w:fill="${shade}"/>` : "";
+  const par = wPara(text, {bold, size, align, spaceBefore:20, spaceAfter:20});
+  return `<w:tc><w:tcPr><w:tcW w:w="${largura}" w:type="dxa"/>${shd}<w:vAlign w:val="top"/></w:tcPr>${par}</w:tc>`;
+}
+
+function wTabela(linhas, larguras){
+  const bordas = `<w:tblBorders>${["top","left","bottom","right","insideH","insideV"]
+    .map(s=>`<w:${s} w:val="single" w:sz="4" w:space="0" w:color="BFBFBF"/>`).join("")}</w:tblBorders>`;
+  const grid = larguras.map(w=>`<w:gridCol w:w="${w}"/>`).join("");
+  const corpo = linhas.map((cells, ri)=>{
+    const cabecalho = ri === 0;
+    const tcs = cells.map((c, ci)=> wCell(mathTxt(c), larguras[ci] || 1000,
+      {bold:cabecalho, shade: cabecalho ? "EDF1F4" : null, size: cabecalho ? 16 : 17})).join("");
+    return `<w:tr>${cabecalho ? '<w:trPr><w:tblHeader/></w:trPr>' : ""}${tcs}</w:tr>`;
+  }).join("");
+  const total = larguras.reduce((a,b)=>a+b, 0);
+  // parágrafo vazio depois da tabela: impede que duas tabelas seguidas se fundam no Word
+  // a ordem dos filhos de w:tblPr segue o schema OOXML: tblW, tblBorders, tblLayout
+  return `<w:tbl><w:tblPr><w:tblW w:w="${total}" w:type="dxa"/>${bordas}<w:tblLayout w:type="fixed"/></w:tblPr>` +
+         `<w:tblGrid>${grid}</w:tblGrid>${corpo}</w:tbl>` + wPara("", {size:8, spaceAfter:0});
+}
+
+// Figura embutida: <w:drawing> inline apontando para a relação r:embed da imagem.
+// cx/cy em EMU definem o tamanho com que o Word desenha (a imagem continua redimensionável).
+function wFigura(fig, numero){
+  const id = 100 + numero;
+  const desenho = `<w:p><w:pPr><w:jc w:val="center"/><w:spacing w:before="160" w:after="40"/></w:pPr><w:r><w:drawing>` +
+    `<wp:inline distT="0" distB="0" distL="0" distR="0">` +
+      `<wp:extent cx="${fig.cx}" cy="${fig.cy}"/><wp:effectExtent l="0" t="0" r="0" b="0"/>` +
+      `<wp:docPr id="${id}" name="Figura ${numero}" descr="${xmlEscape(mathTxt(fig.legenda))}"/>` +
+      `<wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>` +
+      `<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">` +
+        `<pic:pic><pic:nvPicPr><pic:cNvPr id="${id}" name="${fig.nome}"/><pic:cNvPicPr/></pic:nvPicPr>` +
+        `<pic:blipFill><a:blip r:embed="${fig.relId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>` +
+        `<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${fig.cx}" cy="${fig.cy}"/></a:xfrm>` +
+        `<a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic>` +
+      `</a:graphicData></a:graphic>` +
+    `</wp:inline></w:drawing></w:r></w:p>`;
+  const legenda = wPara(mathTxt(`Figura ${numero} — ${fig.legenda}`),
+    {italic:true, size:16, align:"center", color:"555555", spaceAfter:200});
+  return desenho + legenda;
+}
+
+function wTituloSecao(texto){
+  return wPara(mathTxt(texto), {bold:true, size:24, spaceBefore:280, spaceAfter:120, color:"24557E"});
+}
+
+/* --- memorial completo em .docx, a partir do mesmo modelo usado na tela --- */
+
+function buildWordParas(model, figuras){
+  figuras = figuras || [];
+  const figura = n => figuras[n] ? wFigura(figuras[n], n+1) : "";
+  const p = model.perfil;
+  const agora = new Date();
+  const dataStr = agora.toLocaleDateString("pt-BR") + " " + agora.toLocaleTimeString("pt-BR", {hour:"2-digit", minute:"2-digit"});
   const paras = [];
-  paras.push(wPara("Memorial de Cálculo — Vão & Carga", {bold:true, size:32, align:"center", spaceAfter:60}));
-  paras.push(wPara(`Perfil: ${p.bitola}  (${fmt(p.massa,1)} kg/m)`, {bold:true, size:24, align:"center", spaceAfter:200}));
-  paras.push(wPara(`NBR 8800:2008  ·  Vão = ${fmt(r.vaoM,2)} m  ·  ${pat.label}  ·  Carga = ${fmt(r.cargaUtilTf*KN_PER_TF,2)} kN  ·  Lb = ${fmt(r.LbM,2)} m`, {size:18, align:"center", color:"555555", spaceAfter:280}));
 
-  paras.push(wPara("1. Comprimento destravado limite (Lp)", {bold:true, size:24, spaceBefore:120}));
-  paras.push(wPara("Lp = 1,76 · ry · RAIZ(E / fy)"));
-  paras.push(wPara(`Lp = 1,76 × ${fmt(p.ry,2)} × RAIZ(${fmt(E,0)} / ${fmt(FY,2)}) = ${fmt(r.lpDet.Lp_cm,1)} cm = ${fmt(r.Lp,2)} m`));
-  paras.push(wPara(`Lb informado = ${fmt(r.LbM,2)} m  →  ${r.avisoFlt ? "maior que Lp: FLT pode reduzir Mrd abaixo do calculado" : "menor ou igual a Lp: FLT não governa"}`, {bold:r.avisoFlt, color:r.avisoFlt?"8A5F00":null}));
+  paras.push(wPara("Vão & Carga — memorial de cálculo", {bold:true, size:34, align:"center", spaceAfter:60}));
+  paras.push(wPara(mathTxt(model.titulo), {size:24, align:"center", spaceAfter:60}));
+  paras.push(wPara(`Perfil: ${p.bitola}  —  ${fmt(p.massa,1)} kg/m`, {bold:true, size:26, align:"center", spaceAfter:120}));
+  paras.push(wPara(mathTxt(model.subtitulo), {size:18, align:"center", color:"555555", spaceAfter:60}));
+  paras.push(wPara(`Relatório gerado em ${dataStr}`, {size:16, align:"center", color:"777777", spaceAfter:240}));
 
-  paras.push(wPara("2. Momento fletor resistente (Mrd)", {bold:true, size:24, spaceBefore:200}));
-  paras.push(wPara("Mpl = fy · Zx"));
-  paras.push(wPara(`Mpl = ${fmt(FY,2)} × ${fmt(p.Zx,1)} = ${fmt(md.Mpl,3)} tf·m`));
-  paras.push(wPara("Esbeltez da mesa: λ = (bf/2)/tf   λp = 0,38·RAIZ(E/fy)   λr = 0,83·RAIZ(E/(fy−σr))"));
-  paras.push(wPara(`λ = ${fmt(md.lam,2)}    λp = ${fmt(md.lamP,2)}    λr = ${fmt(md.lamR,2)}    →  mesa ${md.regime}`));
-  if(md.regime !== "compacta"){
-    paras.push(wPara(`Mr = ${fmt(FY-SIGMA_R,2)} × ${fmt(p.Wx,1)} = ${fmt(md.Mr,3)} tf·m`));
-    paras.push(wPara(`Mn,FLM = ${fmt(md.Mnflm,3)} tf·m`));
-  }
-  paras.push(wPara(`Mrd = mín(Mpl, Mn,FLM) / 1,65 = ${fmt(md.Mrd,3)} tf·m = ${fmt(md.Mrd*KN_PER_TF,2)} kN·m   [governa: ${md.governa}]`, {bold:true}));
-  paras.push(wPara(`Conferência com a tabela impressa (GERDAU): Mrd = ${fmt(r.MrdCat,2)} tf·m   (Δ = ${errM}%)`, {italic:true, size:18, color:"555555"}));
-
-  paras.push(wPara("3. Força cortante resistente (Vrd)", {bold:true, size:24, spaceBefore:200}));
-  paras.push(wPara("Aw = d · tw     Vpl = 0,6 · Aw · fy     Vrd = Vpl / 1,65"));
-  paras.push(wPara(`Aw = ${fmt(vd.dCm,2)} × ${fmt(vd.twCm,2)} = ${fmt(vd.Aw,2)} cm²`));
-  paras.push(wPara(`Vrd = ${fmt(vd.Vpl,3)} / 1,65 = ${fmt(vd.Vrd,3)} tf = ${fmt(vd.Vrd*KN_PER_TF,2)} kN`, {bold:true}));
-
-  paras.push(wPara("4. Esforços solicitantes (Msd, Vsd)", {bold:true, size:24, spaceBefore:200}));
-  paras.push(wPara(`Peso próprio: pp = ${fmt(p.massa,1)} / 1000 = ${fmt(r.ppTfm,4)} tf/m`));
-  paras.push(wPara(`Msd = pp·L²/8 + a·P·L = ${fmt(r.Mpp,3)} + ${fmt(r.Mutil,3)} = ${fmt(r.Msd,3)} tf·m = ${fmt(r.Msd*KN_PER_TF,2)} kN·m`));
-  paras.push(wPara(`Vsd = pp·L/2 + c·P = ${fmt(r.Vpp,3)} + ${fmt(r.Vutil,3)} = ${fmt(r.Vsd,3)} tf = ${fmt(r.Vsd*KN_PER_TF,2)} kN`));
-  paras.push(wPara(`Verificação momento: Msd ${r.okMomento?"≤":">"} Mrd  →  ${r.okMomento?"OK":"NÃO PASSA"}`, {bold:true, color:r.okMomento?"256B4D":"A1332C"}));
-  paras.push(wPara(`Verificação cortante: Vsd ${r.okCortante?"≤":">"} Vrd  →  ${r.okCortante?"OK":"NÃO PASSA"}`, {bold:true, color:r.okCortante?"256B4D":"A1332C"}));
-
-  if(r.flechaCm !== null){
-    paras.push(wPara("5. Flecha sob carga variável", {bold:true, size:24, spaceBefore:200}));
-    paras.push(wPara(`δ = e · Pvar · L³ / (E · Ix) = ${fmt(r.flechaCm,3)} cm     limite = L/${r.limiteFlechaFrac} = ${fmt(r.flechaLimCm,3)} cm`));
-    paras.push(wPara(`Verificação: δ ${r.okFlecha?"≤":">"} limite  →  ${r.okFlecha?"OK":"NÃO PASSA"}`, {bold:true, color:r.okFlecha?"256B4D":"A1332C"}));
+  if(model.resumo){
+    paras.push(wTituloSecao("Resumo da verificação"));
+    paras.push(wTabela([["Verificação","Solicitante","Resistente / limite","Aproveit.","Situação"], ...model.resumo],
+      [2100, 2200, 2500, 1000, 1838]));
   }
 
-  paras.push(wPara("Ferramenta de pré-dimensionamento — não substitui a verificação e a ART de um engenheiro responsável. Fonte dos dados de perfil: Tabela de Vãos e Cargas GERDAU, 5ª ed. 2018.", {italic:true, size:16, color:"777777", spaceBefore:320}));
+  // Figura 1: diagrama de carregamento (viga) ou esquema da coluna
+  if(figuras[0]) paras.push(figura(0));
+
+  paras.push(wTituloSecao("A. Variáveis de entrada (informadas pelo usuário)"));
+  paras.push(wTabela([["Símbolo","Descrição","Valor","Origem"], ...model.entradas], [1150, 3700, 2500, 2288]));
+
+  paras.push(wTituloSecao("B. Constantes e critérios adotados"));
+  paras.push(wTabela([["Símbolo","Descrição","Valor","Fonte"], ...model.constantes], [1150, 3200, 2700, 2588]));
+
+  paras.push(wTituloSecao(`C. Propriedades do perfil ${p.bitola} (Tabela de Vãos e Cargas GERDAU)`));
+  paras.push(wTabela([["Símbolo","Descrição","Valor"], ...model.props], [1300, 5200, 3138]));
+
+  // Figura 2: desenho cotado da seção transversal do perfil
+  if(figuras[1]) paras.push(figura(1));
+
+  model.secoes.forEach(sec=>{
+    paras.push(wTituloSecao(`${sec.num}. ${sec.titulo}`));
+    sec.passos.forEach(ps=>{
+      paras.push(wPara(mathTxt(`Passo ${ps.num} — ${ps.t}`), {bold:true, size:20, spaceBefore:140, spaceAfter:40}));
+      paras.push(wPara(mathTxt(`Fórmula:      ${ps.f}`), {size:18, spaceAfter:20}));
+      paras.push(wPara(mathTxt(`Substituindo: ${ps.s}`), {size:18, spaceAfter:20}));
+      const marca = ps.ok === undefined ? "" : (ps.ok ? "   [ATENDE]" : "   [NÃO ATENDE]");
+      paras.push(wPara(mathTxt(`Resultado:    ${ps.r}${marca}`), {bold:true, size:18,
+        color: ps.ok === undefined ? null : (ps.ok ? "256B4D" : "A1332C"), spaceAfter:30}));
+      if(ps.n) paras.push(wPara(mathTxt(ps.n), {italic:true, size:16, color:"666666", spaceAfter:60}));
+    });
+  });
+
+  paras.push(wTituloSecao("D. Resumo das variáveis de saída"));
+  paras.push(wTabela([["Símbolo","Descrição","Valor obtido","Onde foi obtido"], ...model.saidas], [1150, 3500, 3000, 1988]));
+  paras.push(wPara(mathTxt(model.conclusao), {bold:true, size:20, color: model.ok ? "256B4D" : "A1332C", spaceBefore:120, spaceAfter:120}));
+
+  paras.push(wPara("Ferramenta de pré-dimensionamento — não substitui a verificação e a ART de um engenheiro responsável. Em especial, não são cobertos aqui: flambagem lateral com torção fora do regime Lb ≤ Lp, ligações, estabilidade global, vibrações e demais estados-limites. Fonte dos dados de perfil: Tabela de Vãos e Cargas GERDAU, 5ª ed. 2018.",
+    {italic:true, size:15, color:"777777", spaceBefore:320}));
   return paras;
 }
 
-function buildWordParasColuna(r){
-  const p = r.perfil, nc = r.nc;
-  const paras = [];
-  paras.push(wPara("Memorial de Cálculo — Vão & Carga", {bold:true, size:32, align:"center", spaceAfter:60}));
-  paras.push(wPara(`Perfil: ${p.bitola}  (${fmt(p.massa,1)} kg/m)`, {bold:true, size:24, align:"center", spaceAfter:200}));
-  paras.push(wPara(`NBR 8800:2008  ·  Coluna — compressão axial  ·  N = ${fmt(r.cargaAxialTf*KN_PER_TF,2)} kN`, {size:18, align:"center", color:"555555", spaceAfter:120}));
-  paras.push(wPara(`Lx = ${fmt(r.LxM,2)} m · Kx = ${fmt(r.Kx,2)} → KLx = ${fmt(r.KLxCm/100,2)} m     Ly = ${fmt(r.LyM,2)} m · Ky = ${fmt(r.Ky,2)} → KLy = ${fmt(r.KLyCm/100,2)} m`, {size:18, align:"center", color:"555555", spaceAfter:280}));
+const NS_DOC = [
+  'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"',
+  'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"',
+  'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"',
+  'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"',
+  'xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"',
+].join(" ");
 
-  paras.push(wPara("1. Fator de seção (Q)", {bold:true, size:24, spaceBefore:120}));
-  paras.push(wPara("Mesa: λ = (bf/2)/tf     λr = 0,56·RAIZ(E/fy)"));
-  paras.push(wPara(`λ = ${fmt(nc.qs.lam,2)}    λr = ${fmt(nc.qs.lamR,2)}    →  Qs = ${fmt(nc.qs.Qs,3)} ${nc.qs.Qs===1?"(mesa não-esbelta)":""}`));
-  paras.push(wPara("Alma: λ = h/tw     λr = 1,49·RAIZ(E/fy)"));
-  paras.push(wPara(`λ = ${fmt(nc.qa.lam,2)}    λr = ${fmt(nc.qa.lamR,2)}    →  Qa = ${fmt(nc.qa.Qa,3)} ${nc.qa.Qa===1?"(alma não-esbelta)":"(largura efetiva reduzida, f=fy)"}`));
-  paras.push(wPara(`Q = Qs × Qa = ${fmt(nc.Q,3)}`, {bold:true}));
-
-  paras.push(wPara("2. Flambagem global", {bold:true, size:24, spaceBefore:200}));
-  paras.push(wPara("Nex = π²E·Ix/(KxLx)²     Ney = π²E·Iy/(KyLy)²"));
-  paras.push(wPara(`Nex = ${fmt(nc.Nex,2)} tf    Ney = ${fmt(nc.Ney,2)} tf    →  governa ${nc.eixoGovernante}, Ne = ${fmt(nc.Ne,2)} tf`));
-  paras.push(wPara("λ₀ = RAIZ(Q·A·fy/Ne)"));
-  paras.push(wPara(`λ₀ = ${fmt(nc.lambda0,3)}     KL/r máx = ${fmt(nc.esbeltezMax,1)}  (limite 200)`, {bold: nc.esbeltezMax>200, color: nc.esbeltezMax>200 ? "A1332C" : null}));
-  paras.push(wPara(nc.lambda0<=1.5 ? "χ = 0,658^(λ₀²)   [λ₀ ≤ 1,5]" : "χ = 0,877/λ₀²   [λ₀ > 1,5]"));
-  paras.push(wPara(`χ = ${fmt(nc.chi,4)}`, {bold:true}));
-
-  paras.push(wPara("3. Resistência e verificação", {bold:true, size:24, spaceBefore:200}));
-  paras.push(wPara("Nc,Rd = χ·Q·A·fy / 1,65"));
-  paras.push(wPara(`Nc,Rd = ${fmt(nc.chi,4)} × ${fmt(nc.Q,3)} × ${fmt(p.A,2)} × ${fmt(FY,2)} / 1,65 = ${fmt(nc.NcRd,3)} tf = ${fmt(nc.NcRd*KN_PER_TF,2)} kN`, {bold:true}));
-  paras.push(wPara(`Verificação: Nsd ${r.okAxial?"≤":">"} Nc,Rd  →  ${r.okAxial?"OK":"NÃO PASSA"}`, {bold:true, color:r.okAxial?"256B4D":"A1332C"}));
-
-  paras.push(wPara("Ferramenta de pré-dimensionamento — não substitui a verificação e a ART de um engenheiro responsável. Fonte dos dados de perfil: Tabela de Vãos e Cargas GERDAU, 5ª ed. 2018.", {italic:true, size:16, color:"777777", spaceBefore:320}));
-  return paras;
-}
-
-function buildDocxBlob(paras){
+function buildDocxBlob(paras, figuras){
+  figuras = figuras || [];
   const body = paras.join("") + '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/></w:sectPr>';
-  const docXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}</w:body></w:document>`;
-  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;
+  const docXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:document ${NS_DOC}><w:body>${body}</w:body></w:document>`;
+  const pngDefault = figuras.length ? '<Default Extension="png" ContentType="image/png"/>' : "";
+  const contentTypes = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>${pngDefault}<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;
   const rootRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
-  const docRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"></Relationships>`;
+  const relsImagens = figuras.map(f=>
+    `<Relationship Id="${f.relId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${f.nome}"/>`).join("");
+  const docRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${relsImagens}</Relationships>`;
 
   const enc = new TextEncoder();
   const files = [
@@ -1172,104 +1542,27 @@ function buildDocxBlob(paras){
     {name:"_rels/.rels", data:enc.encode(rootRels)},
     {name:"word/document.xml", data:enc.encode(docXml)},
     {name:"word/_rels/document.xml.rels", data:enc.encode(docRels)},
+    ...figuras.map(f=>({name:`word/media/${f.nome}`, data:f.bytes})),
   ];
   return makeZip(files);
 }
 
-function buildWordBlobFor(r){
-  const paras = currentMode === "coluna" ? buildWordParasColuna(r) : buildWordParasViga(r);
-  return buildDocxBlob(paras);
+// assíncrono por causa da rasterização dos SVG (diagrama e seção transversal)
+async function buildWordBlobFor(r){
+  const model = modeloDe(r);
+  const figuras = await coletarFiguras(r, model);
+  return buildDocxBlob(buildWordParas(model, figuras), figuras);
 }
 
-function renderColunaMemorial(r, idx){
-  const p = r.perfil, nc = r.nc;
-
-  const propsHtml = `<div class="mprops">
-    <div><b>d</b>${fmt(p.d,0)} mm</div>
-    <div><b>bf</b>${fmt(p.bf,0)} mm</div>
-    <div><b>tf</b>${fmt(p.tf,1)} mm</div>
-    <div><b>tw</b>${fmt(p.tw,1)} mm</div>
-    <div><b>h</b>${fmt(p.h,0)} mm</div>
-    <div><b>A</b>${fmt(p.A,2)} cm²</div>
-    <div><b>rx</b>${fmt(p.rx,2)} cm</div>
-    <div><b>ry</b>${fmt(p.ry,2)} cm</div>
-    <div><b>massa</b>${fmt(p.massa,1)} kg/m</div>
-  </div>`;
-
-  const qsStep = mstep(
-    "Esbeltez da mesa em compressão uniforme — Q<sub>s</sub>",
-    "λ = (b<sub>f</sub>/2)/t<sub>f</sub> &nbsp; λ<sub>r</sub> = 0,56·√(E/f<sub>y</sub>)",
-    `λ = (${fmt(p.bf,0)}/2)/${fmt(p.tf,1)} = ${fmt(nc.qs.lam,2)} &nbsp; λ<sub>r</sub> = ${fmt(nc.qs.lamR,2)}`,
-    `Q<sub>s</sub> = <strong>${fmt(nc.qs.Qs,3)}</strong> ${nc.qs.Qs===1 ? '(mesa não-esbelta)' : ''}`
-  );
-  const qaStep = mstep(
-    "Esbeltez da alma em compressão uniforme — Q<sub>a</sub>",
-    "λ = h/t<sub>w</sub> &nbsp; λ<sub>r</sub> = 1,49·√(E/f<sub>y</sub>)",
-    `λ = ${fmt(p.h,0)}/${fmt(p.tw,1)} = ${fmt(nc.qa.lam,2)} &nbsp; λ<sub>r</sub> = ${fmt(nc.qa.lamR,2)}`,
-    `Q<sub>a</sub> = <strong>${fmt(nc.qa.Qa,3)}</strong> ${nc.qa.Qa===1 ? '(alma não-esbelta)' : '(largura efetiva reduzida, f=f_y)'}`
-  );
-  const qStep = mstep(
-    "Fator de seção — Q",
-    "Q = Q<sub>s</sub> · Q<sub>a</sub>",
-    `Q = ${fmt(nc.qs.Qs,3)} × ${fmt(nc.qa.Qa,3)}`,
-    `Q = <strong>${fmt(nc.Q,3)}</strong>`
-  );
-
-  const neStep = mstep(
-    "Força axial de flambagem elástica — N<sub>e</sub>",
-    "N<sub>ex</sub> = π²E·I<sub>x</sub>/(K<sub>x</sub>L<sub>x</sub>)² &nbsp; N<sub>ey</sub> = π²E·I<sub>y</sub>/(K<sub>y</sub>L<sub>y</sub>)²",
-    `KL<sub>x</sub> = ${fmt(r.Kx,2)} × ${fmt(r.LxM,2)} m = ${fmt(r.KLxCm,1)} cm &nbsp; KL<sub>y</sub> = ${fmt(r.Ky,2)} × ${fmt(r.LyM,2)} m = ${fmt(r.KLyCm,1)} cm`,
-    `N<sub>ex</sub> = ${fmt(nc.Nex,2)} tf &nbsp; N<sub>ey</sub> = ${fmt(nc.Ney,2)} tf &nbsp; → <strong>governa ${nc.eixoGovernante}</strong>, N<sub>e</sub> = ${fmt(nc.Ne,2)} tf`
-  );
-  const lam0Step = mstep(
-    "Índice de esbeltez reduzido — λ₀",
-    "λ₀ = √(Q·A·f<sub>y</sub>/N<sub>e</sub>)",
-    `λ₀ = √(${fmt(nc.Q,3)} × ${fmt(p.A,2)} × ${fmt(FY,2)} / ${fmt(nc.Ne,2)})`,
-    `λ₀ = <strong>${fmt(nc.lambda0,3)}</strong> &nbsp; KL/r máx = ${fmt(nc.esbeltezMax,1)} ${nc.esbeltezMax<=200 ? okBadge(true) : okBadge(false)}`
-  );
-  const chiStep = mstep(
-    "Fator de redução por flambagem — χ",
-    nc.lambda0<=1.5 ? "χ = 0,658^(λ₀²)   [λ₀ ≤ 1,5]" : "χ = 0,877/λ₀²   [λ₀ &gt; 1,5]",
-    `λ₀ = ${fmt(nc.lambda0,3)}`,
-    `χ = <strong>${fmt(nc.chi,4)}</strong>`
-  );
-  const ncrdStep = mstep(
-    "Força axial de compressão resistente — N<sub>c,Rd</sub>",
-    "N<sub>c,Rd</sub> = χ·Q·A·f<sub>y</sub> / 1,65",
-    `N<sub>c,Rd</sub> = ${fmt(nc.chi,4)} × ${fmt(nc.Q,3)} × ${fmt(p.A,2)} × ${fmt(FY,2)} / 1,65`,
-    `N<sub>c,Rd</sub> = <strong>${fmt(nc.NcRd,3)} tf = ${fmt(nc.NcRd*KN_PER_TF,2)} kN</strong>`
-  );
-  const verif = mstep(
-    "Verificação",
-    "N<sub>sd</sub> ≤ N<sub>c,Rd</sub> ?",
-    `${fmt(r.cargaAxialTf*KN_PER_TF,2)} kN ≤ ${fmt(nc.NcRd*KN_PER_TF,2)} kN`,
-    `<strong>${r.okAxial?'✓ OK':'✗ NÃO PASSA'}</strong> ${okBadge(r.okAxial)}`
-  );
-
-  const exportSection = `<div class="msection">
-    <h4>4 · Exportar</h4>
-    <div class="smath-actions">
-      <button class="smath-btn" type="button" data-idx="${idx}">⇪ Exportar para SMath Studio</button>
-      <button class="word-btn" type="button" data-widx="${idx}">📄 Exportar para Word</button>
-      <button class="pdf-btn" type="button" data-pidx="${idx}">🖨 Exportar para PDF</button>
-      <span class="dl-status" data-dlstatus-txt="${idx}"></span>
-    </div>
-  </div>`;
-
-  return `
-    <div class="msection"><h4>Propriedades do perfil</h4>${propsHtml}</div>
-    <div class="msection"><h4>1 · Fator de seção (Q)</h4>${qsStep}${qaStep}${qStep}</div>
-    <div class="msection"><h4>2 · Flambagem global</h4>${neStep}${lam0Step}${chiStep}</div>
-    <div class="msection"><h4>3 · Resistência e verificação</h4>${ncrdStep}${verif}</div>
-    ${exportSection}
-  `;
-}
+function renderColunaMemorial(r, idx, opts){ return renderModeloHtml(modeloColuna(r), idx, opts); }
 
 function renderColuna(resultados){
   els.cards.innerHTML = "";
   if(resultados.length === 0){
     els.resMeta.textContent = "";
     els.moreBtn.hidden = true;
+    currentResults = [];
+    sincronizarSelecao();
     els.cards.innerHTML = `<div class="empty">
       <h3>Nenhum perfil atende</h3>
       <p>Nenhum dos 108 perfis da base resiste à carga axial e/ou satisfaz o limite de esbeltez (KL/r ≤ 200) para os comprimentos informados.</p>
@@ -1296,6 +1589,7 @@ function renderColuna(resultados){
           <span class="massa">${fmt(p.massa,1)} kg/m</span>
         </div>
         ${i===0 ? '<span class="badge">Mais leve que atende</span>' : `<span class="rank">#${i+1}</span>`}
+        <button class="select-btn" type="button" data-selidx="${i}" title="Usar este perfil nos relatórios PDF e Word">Selecionar</button>
         <button class="card-min-btn" type="button" title="Minimizar este perfil" aria-label="Minimizar este perfil">⌄</button>
       </div>
       <div class="profile-fig">${buildProfileSvg(p)}</div>
@@ -1314,20 +1608,92 @@ function renderColuna(resultados){
         </div>
       </div>
       ${esbNote}
-      <details class="memorial" ${i===0 ? "open" : ""}>
-        <summary>Ver memorial de cálculo completo</summary>
-        <div class="memorial-body">${renderColunaMemorial(r, i)}</div>
+      <details class="memorial" data-midx="${i}" ${i===0 ? "open" : ""}>
+        <summary>Ver memorial de cálculo completo — entradas, passo a passo e saídas</summary>
+        <div class="memorial-body">${i===0 ? renderColunaMemorial(r, i) : ""}</div>
       </details>
     `;
     els.cards.appendChild(card);
   });
   els.moreBtn.hidden = resultados.length <= shown;
   refreshDownloadButtons();
+  sincronizarSelecao();
 }
+
+// O memorial de um perfil (3 tabelas + 15 a 26 passos) só é montado quando o usuário
+// abre aquele <details>. Sem isso, arrastar o slider do vão recalcularia seis memoriais
+// completos a cada quadro. O evento "toggle" não borbulha: daí o listener em captura.
+function memorialHtmlPara(r, idx){
+  return currentMode === "coluna" ? renderColunaMemorial(r, idx) : renderMemorial(r, idx);
+}
+els.cards.addEventListener("toggle", (ev)=>{
+  const det = ev.target;
+  if(!det.classList || !det.classList.contains("memorial") || !det.open) return;
+  const corpo = det.querySelector(".memorial-body");
+  if(!corpo || corpo.innerHTML.trim() !== "") return;
+  const idx = Number(det.dataset.midx);
+  const r = currentResults[idx];
+  if(r) corpo.innerHTML = memorialHtmlPara(r, idx);
+}, true);
+
+/* ---------------- perfil escolhido para os relatórios ---------------- */
+
+// A escolha é guardada pela bitola: assim ela sobrevive a um recálculo (mudar vão, carga,
+// mostrar mais alternativas). Se o perfil escolhido deixar de atender, cai no mais leve.
+function sincronizarSelecao(){
+  const temResultados = currentResults.length > 0;
+  if(els.reportBar) els.reportBar.hidden = !temResultados;
+  if(!temResultados){
+    selectedIdx = 0; selectedBitola = null;
+    if(els.perfilSelect) els.perfilSelect.innerHTML = "";
+    return;
+  }
+
+  let idx = selectedBitola ? currentResults.findIndex(r=>r.perfil.bitola === selectedBitola) : -1;
+  if(idx < 0) idx = 0;
+  selectedIdx = idx;
+  selectedBitola = currentResults[idx].perfil.bitola;
+
+  if(els.perfilSelect){
+    els.perfilSelect.innerHTML = currentResults.map((r,i)=>
+      `<option value="${i}"${i===idx ? " selected" : ""}>${i+1}. ${r.perfil.bitola} — ${fmt(r.perfil.massa,1)} kg/m${i===0 ? " (mais leve que atende)" : ""}</option>`
+    ).join("");
+    els.perfilSelect.value = String(idx);
+  }
+
+  els.cards.querySelectorAll(".card").forEach((card, i)=>{
+    const escolhido = i === idx;
+    card.classList.toggle("selected", escolhido);
+    const btn = card.querySelector(".select-btn");
+    if(btn){
+      btn.textContent = escolhido ? "✓ Selecionado" : "Selecionar";
+      btn.classList.toggle("on", escolhido);
+      btn.setAttribute("aria-pressed", escolhido ? "true" : "false");
+    }
+  });
+}
+
+function setSelecionado(idx){
+  const r = currentResults[idx];
+  if(!r) return;
+  selectedBitola = r.perfil.bitola;
+  sincronizarSelecao();
+}
+
+if(els.perfilSelect){
+  els.perfilSelect.addEventListener("change", ()=> setSelecionado(Number(els.perfilSelect.value)));
+}
+
+function perfilEscolhido(){ return currentResults[selectedIdx] || null; }
 
 els.moreBtn.addEventListener("click", ()=>{ shown += 10; recalc(); });
 
 els.cards.addEventListener("click", (ev)=>{
+  const selBtn = ev.target.closest(".select-btn");
+  if(selBtn){
+    setSelecionado(Number(selBtn.dataset.selidx));
+    return;
+  }
   const minBtn = ev.target.closest(".card-min-btn");
   if(minBtn){
     const card = minBtn.closest(".card");
@@ -1373,15 +1739,17 @@ els.cards.addEventListener("click", (ev)=>{
     const statusEl = els.cards.querySelector(`[data-dlstatus-txt="${idx}"]`);
     const r = currentResults[idx];
     if(!r) return;
-    const slug = r.perfil.bitola.replace(/[^\w]+/g,"_");
-    const blob = buildWordBlobFor(r);
-    saveFile(`memorial_${slug}.docx`, blob, statusEl);
+    setStatus(statusEl, "Gerando documento…", "");
+    buildWordBlobFor(r)
+      .then(blob => saveFile(nomeArquivoRelatorio(r, "docx"), blob, statusEl))
+      .catch(() => setStatus(statusEl, "Não foi possível gerar o documento.", "err"));
     return;
   }
   const pdfBtn = ev.target.closest(".pdf-btn");
   if(pdfBtn){
-    const idx = pdfBtn.dataset.pidx;
-    printReportFor(Number(idx));
+    const idx = Number(pdfBtn.dataset.pidx);
+    setSelecionado(idx);
+    printReportFor(idx);
     return;
   }
 });
@@ -1448,7 +1816,11 @@ const DIAGRAM_EXPORT_STYLE = `
   .dg-shear-fill{fill:#F5E3D8;}
   .dg-shear-line{stroke:#C1592C;fill:none;}
   .dg-dim{stroke:#56697A;}
-  .ps-axis{stroke:#56697A;}
+  .ps-steel{fill:#F3F6F7;stroke:#16212B;stroke-width:1.4;stroke-linejoin:round;}
+  .ps-axis{stroke:#56697A;stroke-width:1;}
+  .ps-axis-label{font-family:"IBM Plex Mono",monospace;font-size:11px;fill:#56697A;font-style:italic;}
+  .ps-dim{stroke:#24557E;stroke-width:1;fill:none;}
+  .ps-dim-label{font-family:"IBM Plex Mono",monospace;font-size:10.5px;fill:#24557E;}
   .dg-label{font-family:"IBM Plex Mono",monospace;}
   .dg-label.ink{fill:#16212B;}
   .dg-label.muted{fill:#56697A;}
@@ -1457,37 +1829,89 @@ const DIAGRAM_EXPORT_STYLE = `
   .dg-label.oxide{fill:#C1592C;}
 `;
 
-async function diagramSvgToPngBlob(){
+// Os SVG da tela usam variáveis de cor do tema; na exportação elas são substituídas
+// pelas cores fixas de DIAGRAM_EXPORT_STYLE, para a imagem sair legível em papel.
+function comEstiloExport(svgXml){
+  return svgXml.replace(/<svg([^>]*)>/, `<svg$1><style>${DIAGRAM_EXPORT_STYLE}</style>`);
+}
+function dimensoesSvg(svgXml){
+  const m = /viewBox="\s*[-\d.]+\s+[-\d.]+\s+([\d.]+)\s+([\d.]+)/.exec(svgXml);
+  return m ? {w:parseFloat(m[1]), h:parseFloat(m[2])} : {w:640, h:300};
+}
+function diagramaSvgXml(){
   const svgEl = els.diagramWrap.querySelector("svg");
   if(!svgEl) return null;
   const clone = svgEl.cloneNode(true);
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-  const styleEl = document.createElementNS("http://www.w3.org/2000/svg", "style");
-  styleEl.textContent = DIAGRAM_EXPORT_STYLE;
-  clone.insertBefore(styleEl, clone.firstChild);
+  return new XMLSerializer().serializeToString(clone);
+}
 
-  const vb = svgEl.viewBox && svgEl.viewBox.baseVal;
-  const w = (vb && vb.width) || 640;
-  const h = (vb && vb.height) || 300;
-
-  const xml = new XMLSerializer().serializeToString(clone);
-  const svgBlob = new Blob([xml], { type: "image/svg+xml;charset=utf-8" });
+async function svgParaPng(svgXml, w, h, escala){
+  const svgBlob = new Blob([svgXml], { type: "image/svg+xml;charset=utf-8" });
   const url = URL.createObjectURL(svgBlob);
   try{
     const img = new Image();
-    await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; img.src = url; });
-    const scale = 2;
+    // o timeout evita que o botão fique preso em "Gerando documento…" caso o navegador
+    // não dispare nem load nem error ao rasterizar o SVG
+    await new Promise((resolve, reject) => {
+      const t = setTimeout(()=> reject(new Error("timeout ao rasterizar o SVG")), 8000);
+      img.onload = ()=>{ clearTimeout(t); resolve(); };
+      img.onerror = ()=>{ clearTimeout(t); reject(new Error("falha ao carregar o SVG")); };
+      img.src = url;
+    });
     const canvas = document.createElement("canvas");
-    canvas.width = w * scale; canvas.height = h * scale;
+    canvas.width = Math.round(w*escala); canvas.height = Math.round(h*escala);
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.scale(scale, scale);
+    ctx.scale(escala, escala);
     ctx.drawImage(img, 0, 0, w, h);
     return await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+async function diagramSvgToPngBlob(){
+  const xml = diagramaSvgXml();
+  if(!xml) return null;
+  const {w, h} = dimensoesSvg(xml);
+  return svgParaPng(comEstiloExport(xml), w, h, 2);
+}
+
+/* --- figuras do relatório Word --- */
+// EMU (English Metric Units): 914400 por polegada. A largura útil da página A4 com as
+// margens de 1134 twips usadas no documento é 9638 twips = 6,69 pol = 6.120.130 EMU.
+const EMU_LARGURA_UTIL = 6120130;
+const EMU_POR_PX = 9525;   // 96 dpi
+
+function ajustarFigura(w, h, maxLargura, maxAltura){
+  let cx = w*EMU_POR_PX, cy = h*EMU_POR_PX;
+  const k = Math.min(maxLargura/cx, maxAltura/cy);
+  if(k < 1){ cx *= k; cy *= k; }
+  return {cx:Math.round(cx), cy:Math.round(cy)};
+}
+
+// Monta as imagens do relatório. Se o navegador não conseguir rasterizar um SVG, aquela
+// figura simplesmente não entra — o documento sai completo, só sem o desenho.
+async function coletarFiguras(r, model){
+  const figuras = [];
+  const adicionar = async (svgXml, legenda, maxAltura)=>{
+    if(!svgXml) return;
+    try{
+      const {w, h} = dimensoesSvg(svgXml);
+      const png = await svgParaPng(comEstiloExport(svgXml), w, h, 2);
+      if(!png) return;
+      const bytes = new Uint8Array(await png.arrayBuffer());
+      const {cx, cy} = ajustarFigura(w, h, EMU_LARGURA_UTIL, maxAltura);
+      figuras.push({nome:`imagem${figuras.length+1}.png`, relId:`rId${100+figuras.length}`, bytes, cx, cy, legenda});
+    }catch(e){ /* segue sem a figura */ }
+  };
+
+  await adicionar(diagramaSvgXml(), model.legendaDiagrama, 4600000);
+  await adicionar(buildProfileSvg(r.perfil),
+    `Seção transversal do perfil ${r.perfil.bitola} — cotas em mm, eixos principais x-x e y-y`, 3200000);
+  return figuras;
 }
 
 if(els.dlDiagramBtn){
@@ -1598,7 +2022,7 @@ function buildPrintReportFor(r, idx, isRecommended){
       <div><b>Lx / Kx:</b> ${fmt(r.LxM,2)} m / ${fmt(r.Kx,2)} → KLx = ${fmt(r.KLxCm/100,2)} m</div>
       <div><b>Ly / Ky:</b> ${fmt(r.LyM,2)} m / ${fmt(r.Ky,2)} → KLy = ${fmt(r.KLyCm/100,2)} m</div>
     </div>`;
-    memorialHtml = renderColunaMemorial(r, idx);
+    memorialHtml = renderColunaMemorial(r, idx, {exportar:false});
   } else {
     const tipo = document.querySelector('input[name="tipo"]:checked').value;
     inputsHtml = `<div class="pr-inputs">
@@ -1608,7 +2032,7 @@ function buildPrintReportFor(r, idx, isRecommended){
       <div><b>Carga total / variável:</b> ${fmt(r.cargaUtilTf*KN_PER_TF,2)} kN / ${fmt(r.cargaVar*KN_PER_TF,2)} kN</div>
       ${r.limiteFlechaFrac ? `<div><b>Limite de flecha:</b> L/${r.limiteFlechaFrac}</div>` : ""}
     </div>`;
-    memorialHtml = renderMemorial(r, idx);
+    memorialHtml = renderMemorial(r, idx, {exportar:false});
   }
 
   return `
@@ -1637,9 +2061,35 @@ function printReportFor(idx){
   window.print();
 }
 
+function nomeArquivoRelatorio(r, ext){
+  const slug = r.perfil.bitola.replace(/[^\w]+/g, "_").replace(/^_|_$/g, "");
+  const medida = currentMode === "coluna"
+    ? `KL${fmt(Math.max(r.KLxCm, r.KLyCm)/100, 1).replace(",", "-")}m`
+    : `vao${fmt(r.vaoM, 1).replace(",", "-")}m`;
+  return `memorial_${currentMode}_${slug}_${medida}.${ext}`;
+}
+
+// PDF: monta o relatório do perfil escolhido e chama a impressão do navegador
 const printReportBtn = document.getElementById("printReportBtn");
 if(printReportBtn){
-  printReportBtn.addEventListener("click", ()=> printReportFor(0));
+  printReportBtn.addEventListener("click", ()=>{
+    const r = perfilEscolhido();
+    if(!r){ setStatus(els.reportStatus, "Nenhum perfil atende — ajuste os parâmetros.", "err"); return; }
+    printReportFor(selectedIdx);
+  });
+}
+
+// Word: mesmo memorial em .docx, editável no Word / LibreOffice / Google Docs
+const wordReportBtn = document.getElementById("wordReportBtn");
+if(wordReportBtn){
+  wordReportBtn.addEventListener("click", ()=>{
+    const r = perfilEscolhido();
+    if(!r){ setStatus(els.reportStatus, "Nenhum perfil atende — ajuste os parâmetros.", "err"); return; }
+    setStatus(els.reportStatus, "Gerando documento…", "");
+    buildWordBlobFor(r)
+      .then(blob => saveFile(nomeArquivoRelatorio(r, "docx"), blob, els.reportStatus))
+      .catch(() => setStatus(els.reportStatus, "Não foi possível gerar o documento.", "err"));
+  });
 }
 
 // init

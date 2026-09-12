@@ -202,7 +202,20 @@
         <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
           <div class="meta" id="resMeta"></div>
           <label class="compact-toggle"><input type="checkbox" id="compactToggle"> Minimizar todos</label>
-          <button class="print-btn" id="printReportBtn" type="button" title="Gera um relatório do perfil recomendado, pronto para salvar como PDF pelo navegador">🖨 Gerar relatório PDF</button>
+        </div>
+      </div>
+
+      <!-- barra de relatorio: escolha do perfil + exportacao -->
+      <div class="report-bar" id="reportBar">
+        <div class="report-pick">
+          <label for="perfilSelect">Perfil escolhido para o relatório</label>
+          <select id="perfilSelect" aria-label="Perfil escolhido para o relatório"></select>
+          <div class="report-hint" id="reportHint">O relatório (PDF ou Word) é gerado para este perfil. Você também pode clicar em <strong>Selecionar</strong> no cartão de qualquer perfil da lista.</div>
+        </div>
+        <div class="report-actions">
+          <button class="print-btn primary" id="printReportBtn" type="button" title="Gera o relatório completo do perfil escolhido, pronto para salvar como PDF pelo navegador">🖨 Gerar relatório PDF</button>
+          <button class="print-btn" id="wordReportBtn" type="button" title="Baixa o mesmo relatório em .docx, editável no Word, LibreOffice ou Google Docs">📄 Gerar relatório Word (.docx)</button>
+          <span class="dl-status" id="reportStatus"></span>
         </div>
       </div>
       <div class="cards" id="cards"></div>
