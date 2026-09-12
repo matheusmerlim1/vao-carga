@@ -1,0 +1,392 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Seleciona o perfil W/HP Gerdau mais leve para o vao e o carregamento informados, com calculo por NBR 8800:2008, memorial de calculo completo e diagramas de carregamento, cortante e momento fletor.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%8F%97%EF%B8%8F%3C/text%3E%3C/svg%3E">
+<title>Vão &amp; Carga</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="css/style.css">
+
+</head>
+<body>
+<div class="wrap">
+
+  <header class="topbar">
+    <div class="brand">
+      <div>
+        <div class="brand" style="gap:10px;">
+          <h1>Vão &amp; Carga</h1>
+          <span class="tag">NBR 8800:2008</span>
+        </div>
+        <p>Seleciona o perfil <strong>W/HP Gerdau</strong> mais leve para o vão e o carregamento informados — cálculo por Estados Limites, valores de serviço.</p>
+      </div>
+    </div>
+    <div class="source">
+      <button id="themeBtn" class="theme-btn" type="button" aria-label="Alternar tema claro/escuro">
+        <span id="themeIcon">☀</span> <span id="themeText">Tela clara</span>
+      </button>
+      <div style="margin-top:8px;">
+        Base: <strong>108 perfis</strong> — Tabela de Bitolas W/HP<br>
+        Fonte: Tabela de Vãos e Cargas GERDAU, 5ª ed. 2018
+      </div>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <!-- ================= PAINEL DE ENTRADA ================= -->
+    <section class="panel" aria-label="Parâmetros de entrada">
+
+      <fieldset>
+        <label style="font-size:12.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);">O que verificar</label>
+        <div class="mode-grid" id="modeGrid">
+          <label class="mode-opt"><input type="radio" name="modo" value="viga" checked><span>Viga <small>(flexão)</small></span></label>
+          <label class="mode-opt"><input type="radio" name="modo" value="coluna"><span>Coluna <small>(compressão axial)</small></span></label>
+        </div>
+      </fieldset>
+
+      <div id="beamFields">
+
+        <fieldset>
+          <label style="font-size:12.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);">Tipo de carregamento</label>
+          <div class="load-grid" id="loadGrid"></div>
+          <div class="help" id="loadHelp"></div>
+        </fieldset>
+
+        <div class="field">
+          <label for="vao">Vão livre da viga</label>
+          <div class="row">
+            <input type="range" id="vaoRange" min="1" max="14" step="0.1" value="6">
+            <input type="number" id="vao" min="0.5" max="20" step="0.1" value="6" style="max-width:88px;">
+            <span class="unit">m</span>
+          </div>
+          <div class="help">Distância livre entre apoios (centro a centro, ou face a face conforme o projeto).</div>
+        </div>
+
+        <div class="field">
+          <label for="carga" id="cargaLabel">Carga total distribuída</label>
+          <div class="row">
+            <input type="number" id="carga" min="0" step="1" value="35">
+            <span class="unit">kN</span>
+          </div>
+          <div class="help" id="cargaHelp">Soma de permanente + acidental, <strong>sem</strong> o peso próprio da viga — cada perfil candidato tem seu peso próprio somado automaticamente.</div>
+        </div>
+
+        <div class="field">
+          <label for="cargaVar">Parcela variável (para a flecha)</label>
+          <div class="row">
+            <input type="number" id="cargaVar" min="0" step="1" value="35">
+            <span class="unit">kN</span>
+          </div>
+          <div class="help">A NBR 8800 limita o deslocamento apenas sob a ação <strong>variável</strong> (a permanente é absorvida por contraflecha). Se não souber separar, deixe igual à carga total — fica a favor da segurança.</div>
+        </div>
+
+        <div class="field">
+          <label for="lb">Comprimento destravado (Lb)</label>
+          <div class="row">
+            <input type="range" id="lbRange" min="0.1" max="14" step="0.1" value="6">
+            <input type="number" id="lb" min="0.1" max="20" step="0.1" value="6" style="max-width:88px;">
+            <span class="unit">m</span>
+          </div>
+          <div class="help">Distância entre pontos que travam lateralmente a mesa comprimida (conectores de cisalhamento, laje colaborante, vigas secundárias). Sem travamento intermediário, use o próprio vão.</div>
+        </div>
+
+        <div class="field">
+          <label for="flecha">Limite de flecha</label>
+          <select id="flecha">
+            <option value="180">L/180 — terça de cobertura</option>
+            <option value="250">L/250 — viga de cobertura</option>
+            <option value="350" selected>L/350 — viga de piso</option>
+            <option value="">Não verificar flecha</option>
+          </select>
+          <div class="help">Deslocamento máximo admissível (Tabela C.1, NBR 8800:2008) em relação ao vão.</div>
+        </div>
+
+        <details class="explain">
+          <summary>Como o cálculo é feito</summary>
+          <div class="body">
+            <p><strong>Momento:</strong> M<sub>sd</sub> = M<sub>peso próprio</sub> + a·P·L, comparado a M<sub>rd</sub> = min(M<sub>pl</sub>, M<sub>FLM</sub>)/1,65, com f<sub>y</sub> = 345 MPa (ASTM A572 Gr.50). O coeficiente <code>a</code> muda por tipo de carga (0,125 para distribuída; 0,25 a 0,50 para cargas concentradas).</p>
+            <p><strong>Cortante:</strong> V<sub>sd</sub> comparado a V<sub>rd</sub> = 0,6·A<sub>w</sub>·f<sub>y</sub>/1,65, por apoio.</p>
+            <p><strong>Flecha:</strong> calculada apenas com a parcela variável informada, comparada ao limite L/x escolhido.</p>
+            <p><strong>Validação:</strong> as fórmulas foram conferidas contra as 108 linhas da tabela impressa no catálogo (erro médio ≈ 0,1% em M<sub>rd</sub> e V<sub>rd</sub>) e reproduzem o exemplo prático do próprio manual (viga V1, item 5.4).</p>
+            <p><strong>Limite herdado do catálogo:</strong> os valores de M<sub>rd</sub> assumem viga travada lateralmente (Lb ≤ Lp — flambagem lateral com torção não governa). Se Lb informado for maior que Lp do perfil, isso é sinalizado: a capacidade real pode ser menor que a calculada.</p>
+          </div>
+        </details>
+
+      </div>
+
+      <div id="columnFields" hidden>
+
+        <div class="field">
+          <label for="colLx">Comprimento destravado — eixo x-x (Lx)</label>
+          <div class="row">
+            <input type="number" id="colLx" min="0.1" step="0.1" value="3">
+            <span class="unit">m</span>
+          </div>
+        </div>
+        <div class="field">
+          <label for="colKx">Coeficiente de flambagem Kx</label>
+          <select id="colKx">
+            <option value="0.65">0,65 — engastada-engastada</option>
+            <option value="0.8">0,80 — engastada-rotulada</option>
+            <option value="1" selected>1,00 — rotulada-rotulada (padrão de projeto)</option>
+            <option value="1.2">1,20 — engastada-livre com translação</option>
+            <option value="2">2,00 — engastada-livre (balanço)</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label for="colLy">Comprimento destravado — eixo y-y (Ly)</label>
+          <div class="row">
+            <input type="number" id="colLy" min="0.1" step="0.1" value="3">
+            <span class="unit">m</span>
+          </div>
+        </div>
+        <div class="field">
+          <label for="colKy">Coeficiente de flambagem Ky</label>
+          <select id="colKy">
+            <option value="0.65">0,65 — engastada-engastada</option>
+            <option value="0.8">0,80 — engastada-rotulada</option>
+            <option value="1" selected>1,00 — rotulada-rotulada (padrão de projeto)</option>
+            <option value="1.2">1,20 — engastada-livre com translação</option>
+            <option value="2">2,00 — engastada-livre (balanço)</option>
+          </select>
+          <div class="help">Lx/Ly são as distâncias entre pontos que travam a coluna contra flambagem em cada direção (não precisam ser iguais ao comprimento total do pilar). K depende das condições de apoio nas extremidades desse trecho — NBR 8800:2008, Anexo E.</div>
+        </div>
+
+        <div class="field">
+          <label for="colCarga">Carga axial de compressão</label>
+          <div class="row">
+            <input type="number" id="colCarga" min="0" step="1" value="400">
+            <span class="unit">kN</span>
+          </div>
+          <div class="help">Carga normal de compressão atuante no topo da coluna (permanente + variável). O peso próprio da coluna é desprezado nesta verificação.</div>
+        </div>
+
+        <details class="explain">
+          <summary>Como o cálculo é feito</summary>
+          <div class="body">
+            <p><strong>Flambagem elástica:</strong> N<sub>ex</sub> = π²EI<sub>x</sub>/(K<sub>x</sub>L<sub>x</sub>)² e N<sub>ey</sub> = π²EI<sub>y</sub>/(K<sub>y</sub>L<sub>y</sub>)² — governa o menor dos dois (geralmente y-y, o eixo de menor inércia).</p>
+            <p><strong>Índice de esbeltez reduzido:</strong> λ₀ = √(Q·A·f<sub>y</sub>/N<sub>e</sub>). Fator de redução: χ = 0,658^(λ₀²) se λ₀≤1,5, senão χ = 0,877/λ₀².</p>
+            <p><strong>Seção esbelta (Q):</strong> Q = Q<sub>s</sub>·Q<sub>a</sub> reduz a área efetiva quando a mesa (b<sub>f</sub>/2t<sub>f</sub>) ou a alma (h/t<sub>w</sub>) são esbeltas em compressão uniforme (limites diferentes dos usados para flexão) — cálculo não-iterativo, a favor da segurança.</p>
+            <p><strong>Resistência final:</strong> N<sub>c,Rd</sub> = χ·Q·A·f<sub>y</sub> / 1,65.</p>
+            <p><strong>Limite de esbeltez:</strong> KL/r não pode ultrapassar 200 em nenhuma direção (NBR 8800:2008, 3.3.4).</p>
+            <p><strong>Validação:</strong> fórmulas conferidas contra as equações da própria NBR 8800:2008 citadas no catálogo (cap. 3) e contra o valor de Q impresso na tabela TCPA para perfis de referência; não foi feita a conferência linha a linha contra a tabela TCPA completa (layout muito diferente da TVPA1, não extraído).</p>
+          </div>
+        </details>
+
+      </div>
+
+    </section>
+
+    <!-- ================= RESULTADOS ================= -->
+    <section aria-label="Resultados">
+
+      <div class="diagram-card" id="diagramCard">
+        <div class="results-head">
+          <h2 id="diagramTitle">Diagrama de carregamento</h2>
+          <div class="meta" id="diagramMeta">Reações, força cortante e momento fletor da carga aplicada (sem peso próprio)</div>
+        </div>
+        <div id="diagramWrap"></div>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap;">
+          <button class="dl-btn" id="dlDiagramBtn" type="button" hidden>⇩ Baixar diagrama (PNG)</button>
+          <span class="dl-status" id="dlDiagramStatus"></span>
+          <span style="font-size:12px;color:var(--muted);">— insira como figura no SMath (Inserir → Figura)</span>
+        </div>
+      </div>
+
+      <div class="results-head">
+        <h2 id="resTitle">Perfis recomendados</h2>
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+          <div class="meta" id="resMeta"></div>
+          <label class="compact-toggle"><input type="checkbox" id="compactToggle"> Minimizar todos</label>
+          <button class="print-btn" id="printReportBtn" type="button" title="Gera um relatório do perfil recomendado, pronto para salvar como PDF pelo navegador">🖨 Gerar relatório PDF</button>
+        </div>
+      </div>
+      <div class="cards" id="cards"></div>
+      <button class="more" id="moreBtn" type="button" hidden>Ver mais alternativas</button>
+    </section>
+
+  </div>
+
+  <footer>
+    Ferramenta de pré-dimensionamento. Não substitui a verificação e a ART de um engenheiro responsável — em especial para flambagem lateral com torção fora do regime Lb ≤ Lp, ligações, estabilidade global e demais estados limites não cobertos aqui.
+  </footer>
+
+</div>
+
+<div id="printReport"></div>
+
+<script src="js/script.js"></script>
+
+<!-- === Botao de volta ao portfolio - cole antes de </body> === -->
+<a id="mr-portfolio-btn" href="https://matheusmerlim1.github.io/" target="_blank" rel="noopener"
+   aria-label="Abrir o portf&oacute;lio de Matheus Raposo" title="Ver todos os meus projetos">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+       stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/>
+  </svg>
+  <span>Portf&oacute;lio</span>
+</a>
+<style>
+#mr-portfolio-btn {
+  position: fixed; top: 12px; right: 12px; z-index: 2147483000;
+  display: inline-flex; align-items: center; gap: .4rem;
+  padding: .42rem .8rem; border-radius: 999px;
+  font: 600 13px/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #e8edf5; text-decoration: none; white-space: nowrap;
+  background: rgba(18,24,38,.92);
+  border: 1px solid rgba(88,166,255,.45);
+  box-shadow: 0 2px 12px rgba(0,0,0,.35);
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  transition: transform .15s, border-color .15s, background .15s;
+}
+#mr-portfolio-btn:hover {
+  transform: translateY(-1px); color: #fff; text-decoration: none;
+  background: rgba(24,32,50,.96); border-color: #58a6ff;
+}
+#mr-portfolio-btn:focus-visible { outline: 2px solid #58a6ff; outline-offset: 2px; }
+@media (max-width: 520px) {
+  #mr-portfolio-btn { padding: .45rem; }
+  #mr-portfolio-btn span { display: none; }
+}
+@media print { #mr-portfolio-btn { display: none; } }
+</style>
+<script>
+/* Abre espaco para o botao em vez de cobrir o que ja existia no canto.
+   1) empurra para a esquerda o conteudo da barra que ocupa aquele espaco;
+   2) se ainda sobrar sobreposicao, desloca o proprio item. */
+(function () {
+  var btn = document.getElementById('mr-portfolio-btn');
+  if (!btn) return;
+
+  var desfazer = [];
+
+  function limpar() {
+    for (var i = 0; i < desfazer.length; i++) desfazer[i]();
+    desfazer = [];
+  }
+
+  function guardar(el, prop) {
+    var antes = el.style[prop];
+    desfazer.push(function () { el.style[prop] = antes; });
+  }
+
+  /* item discreto = nao ocupa quase toda a largura; e um controle, rotulo ou icone */
+  function ehItem(el) {
+    if (!el || el === document.body || el === document.documentElement) return false;
+    return el.getBoundingClientRect().width < innerWidth * 0.7;
+  }
+
+  /* sobe ate a barra que contem o item (algo largo o bastante para ter padding) */
+  function barra(el) {
+    for (var n = 0; el && n < 8; n++, el = el.parentElement) {
+      if (el === document.body || el === document.documentElement) return null;
+      if (el.getBoundingClientRect().width >= innerWidth * 0.6) return el;
+    }
+    return null;
+  }
+
+  function encosta(a, b) {
+    return !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom);
+  }
+
+  function varrer() {
+    var r = btn.getBoundingClientRect();
+    var y = Math.round(r.top + r.height / 2);
+    var achados = [];
+    btn.style.visibility = 'hidden';
+    for (var x = Math.floor(r.right); x > r.left - 10; x -= 8) {
+      if (x < 1 || x > innerWidth - 1) continue;
+      var sob = document.elementFromPoint(x, y);
+      if (ehItem(sob) && achados.indexOf(sob) < 0) achados.push(sob);
+    }
+    btn.style.visibility = '';
+    return achados;
+  }
+
+  function ajustar() {
+    limpar();
+    var r = btn.getBoundingClientRect();
+    if (!r.width) return;
+    var reserva = Math.ceil(r.width + 20);
+
+    /* 1) padding na barra: desloca o conteudo dela para a esquerda */
+    var barras = [];
+    varrer().forEach(function (item) {
+      var b = barra(item);
+      if (b && barras.indexOf(b) < 0) barras.push(b);
+    });
+    barras.forEach(function (b) {
+      if ((parseFloat(getComputedStyle(b).paddingRight) || 0) >= reserva) return;
+      guardar(b, 'paddingRight');
+      b.style.paddingRight = reserva + 'px';
+    });
+
+    /* 2) o que continuar embaixo do botao (tipicamente position:absolute,
+          que nao anda com padding) e deslocado individualmente */
+    r = btn.getBoundingClientRect();
+    varrer().forEach(function (item) {
+      if (!encosta(item.getBoundingClientRect(), r)) return;
+      var cs = getComputedStyle(item);
+      if (cs.position === 'absolute' || cs.position === 'fixed') {
+        var atual = parseFloat(cs.right);
+        guardar(item, 'right');
+        item.style.right = (isNaN(atual) ? reserva : atual + reserva) + 'px';
+      } else {
+        guardar(item, 'marginRight');
+        item.style.marginRight =
+          ((parseFloat(cs.marginRight) || 0) + reserva) + 'px';
+      }
+    });
+
+    /* 3) rede de seguranca: o que insistir em ficar embaixo do botao e
+          deslocado no proprio elemento. transform sempre move, seja qual
+          for o position, o display ou o container. */
+    for (var tent = 0; tent < 3; tent++) {
+      r = btn.getBoundingClientRect();
+      var teimosos = varrer().filter(function (item) {
+        return encosta(item.getBoundingClientRect(), r);
+      });
+      if (!teimosos.length) break;
+      teimosos.forEach(function (item) {
+        var caixa = item.getBoundingClientRect();
+        var passo = Math.ceil(caixa.right - r.left + 10);
+        if (passo <= 0) return;
+        guardar(item, 'transform');
+        item.style.transform = 'translateX(-' + passo + 'px)';
+      });
+    }
+
+    btn.setAttribute('data-mr-ok', '1');   /* marca que o ajuste ja rodou */
+  }
+
+  var pendente = 0;
+  function agendar() {
+    /* sem requestAnimationFrame de proposito: ele nao dispara quando a pagina
+       esta em aba oculta ou em iframe fora da tela, e as leituras de layout
+       abaixo ja forcam o recalculo sozinhas */
+    clearTimeout(pendente);
+    pendente = setTimeout(ajustar, 60);
+  }
+
+  agendar();
+  addEventListener('DOMContentLoaded', agendar);
+  addEventListener('load', agendar);
+  addEventListener('resize', agendar);
+
+  /* muita pagina monta o cabecalho por JS depois do load; refaz o calculo
+     quando o DOM mudar e em algumas passadas tardias, por seguranca */
+  if (window.MutationObserver) {
+    new MutationObserver(agendar).observe(document.documentElement,
+      { childList: true, subtree: true });
+  }
+  [400, 1200, 3000].forEach(function (t) { setTimeout(agendar, t); });
+})();
+</script>
+<!-- === fim do botao === -->
+
+</body>
+</html>
