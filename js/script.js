@@ -1213,7 +1213,7 @@ function render(resultados){
     const p = r.perfil;
     const card = document.createElement("div");
     card.className = "card" + (i===0 ? " best" : "");
-    const fltNote = r.avisoFlt ? `<div class="flt-note">⚠ Lb (${fmt(r.LbM)} m) &gt; Lp (${fmt(r.Lp)} m) deste perfil: a flambagem lateral com torção pode reduzir M<sub style="font-size:.9em">rd</sub> abaixo do calculado aqui. Reduza o espaçamento de travamento ou peça verificação detalhada.</div>` : "";
+    const fltNote = r.avisoFlt ? `<div class="flt-note"><span aria-hidden="true">⚠</span><span>L<sub>b</sub> (${fmt(r.LbM)} m) &gt; L<sub>p</sub> (${fmt(r.Lp)} m) deste perfil: a flambagem lateral com torção pode reduzir M<sub>rd</sub> abaixo do calculado aqui. Reduza o espaçamento de travamento ou peça verificação detalhada.</span></div>` : "";
     const flechaCheck = r.flechaCm!==null ? `
       <div class="check">
         <div class="label">Flecha</div>
@@ -1581,7 +1581,7 @@ function renderColuna(resultados){
     const p = r.perfil, nc = r.nc;
     const card = document.createElement("div");
     card.className = "card" + (i===0 ? " best" : "");
-    const esbNote = !r.esbeltezOk ? `<div class="flt-note">⚠ KL/r = ${fmt(nc.esbeltezMax,1)} ultrapassa o limite de 200 (NBR 8800:2008, 3.3.4) — perfil descartado por esbeltez excessiva, mesmo que a resistência axial isolada pudesse ser suficiente.</div>` : "";
+    const esbNote = !r.esbeltezOk ? `<div class="flt-note"><span aria-hidden="true">⚠</span><span>KL/r = ${fmt(nc.esbeltezMax,1)} ultrapassa o limite de 200 (NBR 8800:2008, 3.3.4) — perfil descartado por esbeltez excessiva, mesmo que a resistência axial isolada pudesse ser suficiente.</span></div>` : "";
     card.innerHTML = `
       <div class="card-top">
         <div class="card-name">

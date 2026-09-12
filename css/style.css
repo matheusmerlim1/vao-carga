@@ -256,6 +256,9 @@ details.explain .body code{font-family:"IBM Plex Mono",monospace;background:var(
   margin-top:12px;font-size:12.5px;color:var(--warn);background:var(--warn-soft);
   border-radius:7px;padding:8px 11px;display:flex;gap:8px;align-items:flex-start;line-height:1.5;
 }
+.flt-note > span:first-child{flex:0 0 auto;}   /* o ícone não encolhe */
+.flt-note > span:last-child{flex:1 1 auto;min-width:0;}
+.flt-note sub{font-size:.85em;}
 .lb-note{margin-top:12px;font-size:12.5px;color:var(--muted);}
 
 /* ---------- memorial de cálculo ---------- */
