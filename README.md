@@ -1,5 +1,7 @@
 # Vão & Carga
 
+**Demo:** https://matheusmerlim1.github.io/vao-carga/
+
 Seleciona o perfil W/HP Gerdau mais leve para um vão e um carregamento informados. Cálculo por Estados Limites conforme a NBR 8800:2008, validado contra a "Tabela de Vãos e Cargas GERDAU" (5ª edição, 2018) — erro médio de ~0,1% em Mrd e Vrd nos 108 perfis da base.
 
 Inclui:
