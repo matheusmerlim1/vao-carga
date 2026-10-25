@@ -118,7 +118,10 @@ button{font-family:inherit;}
 
 /* ---------- layout ---------- */
 .layout{display:grid;grid-template-columns:minmax(300px,340px) 1fr;gap:22px;align-items:start;}
-@media (max-width:900px){ .layout{grid-template-columns:1fr;} }
+/* minmax(0,…): com 1fr a coluna não encolhia abaixo da tabela mais larga do memorial e a
+   página inteira ficava com ~680px no celular */
+@media (max-width:900px){ .layout{grid-template-columns:minmax(0,1fr);} }
+.layout > *{min-width:0;}
 
 .panel{
   position:sticky;top:16px;
