@@ -280,26 +280,26 @@ function recomendarColuna(LxM, LyM, Kx, Ky, cargaAxialTf){
 /* ---------------- UI wiring ---------------- */
 
 const LOAD_SVGS = {
-  uniforme: `<svg viewBox="0 0 120 40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+  uniforme: `<svg viewBox="0 0 120 40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false">
     <line x1="10" y1="18" x2="110" y2="18"/>
     ${[14,28,42,56,70,84,98].map(x=>`<line x1="${x}" y1="4" x2="${x}" y2="16"/><path d="M${x-3} 13 L${x} 18 L${x+3} 13" />`).join("")}
     <path d="M10 18 L4 30 L16 30 Z"/><path d="M110 18 L104 30 L116 30 Z"/>
     <line x1="0" y1="31" x2="9" y2="31"/><line x1="111" y1="31" x2="120" y2="31"/>
   </svg>`,
-  ponto_meio: `<svg viewBox="0 0 120 40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+  ponto_meio: `<svg viewBox="0 0 120 40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false">
     <line x1="10" y1="18" x2="110" y2="18"/>
     <line x1="60" y1="2" x2="60" y2="16"/><path d="M56 12 L60 18 L64 12"/>
     <path d="M10 18 L4 30 L16 30 Z"/><path d="M110 18 L104 30 L116 30 Z"/>
     <line x1="0" y1="31" x2="9" y2="31"/><line x1="111" y1="31" x2="120" y2="31"/>
   </svg>`,
-  dois_tercos: `<svg viewBox="0 0 120 40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+  dois_tercos: `<svg viewBox="0 0 120 40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false">
     <line x1="10" y1="18" x2="110" y2="18"/>
     <line x1="43" y1="2" x2="43" y2="16"/><path d="M39 12 L43 18 L47 12"/>
     <line x1="77" y1="2" x2="77" y2="16"/><path d="M73 12 L77 18 L81 12"/>
     <path d="M10 18 L4 30 L16 30 Z"/><path d="M110 18 L104 30 L116 30 Z"/>
     <line x1="0" y1="31" x2="9" y2="31"/><line x1="111" y1="31" x2="120" y2="31"/>
   </svg>`,
-  tres_quartos: `<svg viewBox="0 0 120 40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+  tres_quartos: `<svg viewBox="0 0 120 40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false">
     <line x1="10" y1="18" x2="110" y2="18"/>
     <line x1="35" y1="2" x2="35" y2="16"/><path d="M31 12 L35 18 L39 12"/>
     <line x1="60" y1="2" x2="60" y2="16"/><path d="M56 12 L60 18 L64 12"/>
@@ -463,7 +463,9 @@ function buildProfileSvg(perfil){
   s += `<line class="ps-dim" x1="${x0-6}" y1="${flBotY0}" x2="${x0-6}" y2="${y0+d}"/>`;
   s += `<text class="ps-dim-label" x="${xC+8}" y="${yC-6}" text-anchor="start">tw=${fmt(tw,1)}</text>`;
 
-  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${s}</svg>`;
+  // role=img + aria-label: o leitor de tela recebe as cotas numa frase, em vez de textos soltos do desenho
+  const desc = `Seção transversal do perfil ${perfil.bitola}: d = ${fmt(d,0)} mm, h = ${fmt(h,0)} mm, bf = ${fmt(bf,0)} mm, tf = ${fmt(tf,1)} mm, tw = ${fmt(tw,1)} mm`;
+  return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${desc}">${s}</svg>`;
 }
 
 // condição de apoio de cada extremidade a partir do coeficiente K escolhido (mesmas opções do <select>)
@@ -547,7 +549,8 @@ function buildColumnDiagram(LxM, LyM, Kx, Ky, cargaKN){
   s += `<line class="ps-axis" x1="${(x1+x2)/2}" y1="${yTop-10}" x2="${(x1+x2)/2}" y2="${yBot+15}" stroke-dasharray="3,4"/>`;
 
   const viewH = yBot + 92;
-  return `<svg viewBox="0 0 600 ${viewH}" xmlns="http://www.w3.org/2000/svg">${s}</svg>`;
+  const desc = `Diagrama da coluna com carga axial N = ${fmt(cargaKN,2)} kN. Eixo x-x: ${condX.label}, Lx = ${fmt(LxM,2)} m, Kx = ${fmt(Kx,2)}, KLx = ${fmt(Kx*LxM,2)} m. Eixo y-y: ${condY.label}, Ly = ${fmt(LyM,2)} m, Ky = ${fmt(Ky,2)}, KLy = ${fmt(Ky*LyM,2)} m.`;
+  return `<svg viewBox="0 0 600 ${viewH}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${desc}">${s}</svg>`;
 }
 
 function buildDiagram(tipo, vaoM, cargaKN){
@@ -652,7 +655,8 @@ function buildDiagram(tipo, vaoM, cargaKN){
   s += `<text class="dg-label accent" x="${mid}" y="${axisY+depth+20}" text-anchor="middle" font-size="13" font-weight="600">M_max = ${fmt(Mmax_kNm,2)} kN·m</text>`;
 
   const viewH = axisY + depth + 40;
-  return `<svg viewBox="0 0 640 ${viewH}" xmlns="http://www.w3.org/2000/svg">${s}</svg>`;
+  const desc = `Diagrama da viga biapoiada, ${pat.label.toLowerCase()}, vão L = ${fmt(vaoM,2)} m, carga ${fmt(cargaKN,2)} kN. Reação em cada apoio R = ${fmt(R_kN,2)} kN; força cortante entre +${fmt(R_kN,2)} e −${fmt(R_kN,2)} kN; momento fletor máximo ${fmt(Mmax_kNm,2)} kN·m.`;
+  return `<svg viewBox="0 0 640 ${viewH}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${desc}">${s}</svg>`;
 }
 
 /* ================= MODELO DE CÁLCULO (fonte única de HTML, PDF e Word) =================
@@ -1136,10 +1140,12 @@ function modeloDe(r){
 
 /* ---------------- memorial em HTML (tela + relatório PDF) ---------------- */
 
-function mtabela(cabecalho, linhas, classes){
+// rotulo: nome da região rolável (a tabela recebe foco pelo teclado para rolar no celular);
+// leva a bitola porque cada cartão tem um memorial com as mesmas tabelas e o nome precisa ser único
+function mtabela(cabecalho, linhas, classes, rotulo){
   const th = cabecalho.map(c=>`<th>${c}</th>`).join("");
   const tr = linhas.map(l=>`<tr>${l.map((c,i)=>`<td class="${classes[i]||""}">${mathHtml(c)}</td>`).join("")}</tr>`).join("");
-  return `<div class="mtable-wrap"><table class="mtable"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></div>`;
+  return `<div class="mtable-wrap" tabindex="0" role="region" aria-label="${rotulo || "Tabela do memorial"}"><table class="mtable"><thead><tr>${th}</tr></thead><tbody>${tr}</tbody></table></div>`;
 }
 
 function renderModeloHtml(model, idx, opts){
@@ -1163,24 +1169,24 @@ function renderModeloHtml(model, idx, opts){
       <button class="smath-btn" type="button" data-idx="${idx}">⇪ Exportar para SMath Studio</button>
       <button class="word-btn" type="button" data-widx="${idx}">📄 Relatório Word (.docx)</button>
       <button class="pdf-btn" type="button" data-pidx="${idx}">🖨 Relatório PDF</button>
-      <span class="dl-status" data-dlstatus-txt="${idx}"></span>
+      <span class="dl-status" data-dlstatus-txt="${idx}" role="status"></span>
     </div>
   </div>`;
 
   const resumoHtml = !model.resumo ? "" : `<div class="msection"><h4>Resumo da verificação</h4>
-    ${mtabela(["Verificação","Solicitante","Resistente / limite","Aproveitamento","Situação"], model.resumo, ["","val","val","val","sit"])}</div>`;
+    ${mtabela(["Verificação","Solicitante","Resistente / limite","Aproveitamento","Situação"], model.resumo, ["","val","val","val","sit"], `Resumo da verificação — ${model.perfil.bitola}`)}</div>`;
 
   return `
     ${resumoHtml}
     <div class="msection"><h4>A · Variáveis de entrada (informadas)</h4>
-      ${mtabela(["Símbolo","Descrição","Valor","Origem"], model.entradas, ["sym","","val","src"])}</div>
+      ${mtabela(["Símbolo","Descrição","Valor","Origem"], model.entradas, ["sym","","val","src"], `Variáveis de entrada — ${model.perfil.bitola}`)}</div>
     <div class="msection"><h4>B · Constantes e critérios adotados</h4>
-      ${mtabela(["Símbolo","Descrição","Valor","Fonte"], model.constantes, ["sym","","val","src"])}</div>
+      ${mtabela(["Símbolo","Descrição","Valor","Fonte"], model.constantes, ["sym","","val","src"], `Constantes e critérios adotados — ${model.perfil.bitola}`)}</div>
     <div class="msection"><h4>C · Propriedades do perfil ${model.perfil.bitola} (tabela GERDAU)</h4>
-      ${mtabela(["Símbolo","Descrição","Valor"], model.props, ["sym","","val"])}</div>
+      ${mtabela(["Símbolo","Descrição","Valor"], model.props, ["sym","","val"], `Propriedades do perfil ${model.perfil.bitola}`)}</div>
     ${secoesHtml}
     <div class="msection"><h4>D · Resumo das variáveis de saída</h4>
-      ${mtabela(["Símbolo","Descrição","Valor obtido","Onde foi obtido"], model.saidas, ["sym","","val","src"])}
+      ${mtabela(["Símbolo","Descrição","Valor obtido","Onde foi obtido"], model.saidas, ["sym","","val","src"], `Resumo das variáveis de saída — ${model.perfil.bitola}`)}
       <div class="mconclusao ${model.ok ? "ok" : "fail"}">${mathHtml(model.conclusao)}</div></div>
     ${exportSection}
   `;
@@ -1223,12 +1229,12 @@ function render(resultados){
     card.innerHTML = `
       <div class="card-top">
         <div class="card-name">
-          <span class="bitola">${p.bitola}</span>
+          <h3 class="bitola">${p.bitola}</h3>
           <span class="massa">${fmt(p.massa,1)} kg/m</span>
         </div>
         ${i===0 ? '<span class="badge">Mais leve que atende</span>' : `<span class="rank">#${i+1}</span>`}
         <button class="select-btn" type="button" data-selidx="${i}" title="Usar este perfil nos relatórios PDF e Word">Selecionar</button>
-        <button class="card-min-btn" type="button" title="Minimizar este perfil" aria-label="Minimizar este perfil">⌄</button>
+        <button class="card-min-btn" type="button" title="Minimizar este perfil" aria-label="Minimizar este perfil" aria-expanded="true">⌄</button>
       </div>
       <div class="profile-fig">${buildProfileSvg(p)}</div>
       <div class="checks">
@@ -1585,12 +1591,12 @@ function renderColuna(resultados){
     card.innerHTML = `
       <div class="card-top">
         <div class="card-name">
-          <span class="bitola">${p.bitola}</span>
+          <h3 class="bitola">${p.bitola}</h3>
           <span class="massa">${fmt(p.massa,1)} kg/m</span>
         </div>
         ${i===0 ? '<span class="badge">Mais leve que atende</span>' : `<span class="rank">#${i+1}</span>`}
         <button class="select-btn" type="button" data-selidx="${i}" title="Usar este perfil nos relatórios PDF e Word">Selecionar</button>
-        <button class="card-min-btn" type="button" title="Minimizar este perfil" aria-label="Minimizar este perfil">⌄</button>
+        <button class="card-min-btn" type="button" title="Minimizar este perfil" aria-label="Minimizar este perfil" aria-expanded="true">⌄</button>
       </div>
       <div class="profile-fig">${buildProfileSvg(p)}</div>
       <div class="checks">
@@ -1700,6 +1706,8 @@ els.cards.addEventListener("click", (ev)=>{
     const nowCompact = card.classList.toggle("compact");
     minBtn.textContent = nowCompact ? "⌃" : "⌄";
     minBtn.title = nowCompact ? "Expandir este perfil" : "Minimizar este perfil";
+    minBtn.setAttribute("aria-label", minBtn.title);
+    minBtn.setAttribute("aria-expanded", nowCompact ? "false" : "true");
     return;
   }
   const btn = ev.target.closest(".smath-btn");
@@ -1996,8 +2004,11 @@ function applyTheme(theme){
   document.documentElement.setAttribute("data-theme", theme);
   if(theme === "dark"){
     themeIcon.textContent = "☾"; themeText.textContent = "Tela escura";
+    // o nome começa pelo texto visível (WCAG 2.5.3) e diz o que o clique faz
+    themeBtn.setAttribute("aria-label", "Tela escura — alternar para tela clara");
   } else {
     themeIcon.textContent = "☀"; themeText.textContent = "Tela clara";
+    themeBtn.setAttribute("aria-label", "Tela clara — alternar para tela escura");
   }
 }
 applyTheme(readSavedTheme() || "light");

@@ -7,7 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%F0%9F%8F%97%EF%B8%8F%3C/text%3E%3C/svg%3E">
 <title>Vão &amp; Carga</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="css/style.css?v=20261025">
+<link rel="stylesheet" href="css/style.css?v=20261028">
 
 </head>
 <body>
@@ -24,8 +24,8 @@
       </div>
     </div>
     <div class="source">
-      <button id="themeBtn" class="theme-btn" type="button" aria-label="Alternar tema claro/escuro">
-        <span id="themeIcon">☀</span> <span id="themeText">Tela clara</span>
+      <button id="themeBtn" class="theme-btn" type="button" aria-label="Tela clara — alternar para tela escura">
+        <span id="themeIcon" aria-hidden="true">☀</span> <span id="themeText">Tela clara</span>
       </button>
       <div style="margin-top:8px;">
         Base: <strong>108 perfis</strong> — Tabela de Bitolas W/HP<br>
@@ -34,13 +34,13 @@
     </div>
   </header>
 
-  <div class="layout">
+  <main class="layout" id="conteudo">
 
     <!-- ================= PAINEL DE ENTRADA ================= -->
     <section class="panel" aria-label="Parâmetros de entrada">
 
       <fieldset>
-        <label style="font-size:12.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);">O que verificar</label>
+        <legend class="group-label">O que verificar</legend>
         <div class="mode-grid" id="modeGrid">
           <label class="mode-opt"><input type="radio" name="modo" value="viga" checked><span>Viga <small>(flexão)</small></span></label>
           <label class="mode-opt"><input type="radio" name="modo" value="coluna"><span>Coluna <small>(compressão axial)</small></span></label>
@@ -50,7 +50,7 @@
       <div id="beamFields">
 
         <fieldset>
-          <label style="font-size:12.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);">Tipo de carregamento</label>
+          <legend class="group-label">Tipo de carregamento</legend>
           <div class="load-grid" id="loadGrid"></div>
           <div class="help" id="loadHelp"></div>
         </fieldset>
@@ -58,7 +58,7 @@
         <div class="field">
           <label for="vao">Vão livre da viga</label>
           <div class="row">
-            <input type="range" id="vaoRange" min="1" max="14" step="0.1" value="6">
+            <input type="range" id="vaoRange" aria-label="Vão livre da viga (m)" min="1" max="14" step="0.1" value="6">
             <input type="number" id="vao" min="0.5" max="20" step="0.1" value="6" style="max-width:88px;">
             <span class="unit">m</span>
           </div>
@@ -86,7 +86,7 @@
         <div class="field">
           <label for="lb">Comprimento destravado (Lb)</label>
           <div class="row">
-            <input type="range" id="lbRange" min="0.1" max="14" step="0.1" value="6">
+            <input type="range" id="lbRange" aria-label="Comprimento destravado Lb (m)" min="0.1" max="14" step="0.1" value="6">
             <input type="number" id="lb" min="0.1" max="20" step="0.1" value="6" style="max-width:88px;">
             <span class="unit">m</span>
           </div>
@@ -192,7 +192,7 @@
         <div id="diagramWrap"></div>
         <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap;">
           <button class="dl-btn" id="dlDiagramBtn" type="button" hidden>⇩ Baixar diagrama (PNG)</button>
-          <span class="dl-status" id="dlDiagramStatus"></span>
+          <span class="dl-status" id="dlDiagramStatus" role="status"></span>
           <span style="font-size:12px;color:var(--muted);">— insira como figura no SMath (Inserir → Figura)</span>
         </div>
       </div>
@@ -200,7 +200,7 @@
       <div class="results-head">
         <h2 id="resTitle">Perfis recomendados</h2>
         <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
-          <div class="meta" id="resMeta"></div>
+          <div class="meta" id="resMeta" role="status"></div>
           <label class="compact-toggle"><input type="checkbox" id="compactToggle"> Minimizar todos</label>
         </div>
       </div>
@@ -215,14 +215,14 @@
         <div class="report-actions">
           <button class="print-btn primary" id="printReportBtn" type="button" title="Gera o relatório completo do perfil escolhido, pronto para salvar como PDF pelo navegador">🖨 Gerar relatório PDF</button>
           <button class="print-btn" id="wordReportBtn" type="button" title="Baixa o mesmo relatório em .docx, editável no Word, LibreOffice ou Google Docs">📄 Gerar relatório Word (.docx)</button>
-          <span class="dl-status" id="reportStatus"></span>
+          <span class="dl-status" id="reportStatus" role="status"></span>
         </div>
       </div>
       <div class="cards" id="cards"></div>
       <button class="more" id="moreBtn" type="button" hidden>Ver mais alternativas</button>
     </section>
 
-  </div>
+  </main>
 
   <footer>
     Ferramenta de pré-dimensionamento. Não substitui a verificação e a ART de um engenheiro responsável — em especial para flambagem lateral com torção fora do regime Lb ≤ Lp, ligações, estabilidade global e demais estados limites não cobertos aqui.
@@ -232,17 +232,19 @@
 
 <div id="printReport"></div>
 
-<script src="js/script.js"></script>
+<script src="js/script.js?v=20261028"></script>
 
 <!-- === Botao de volta ao portfolio - cole antes de </body> === -->
+<nav aria-label="Portf&oacute;lio">
 <a id="mr-portfolio-btn" href="https://matheusmerlim1.github.io/" target="_blank" rel="noopener"
-   aria-label="Abrir o portf&oacute;lio de Matheus Raposo" title="Ver todos os meus projetos">
+   aria-label="Portf&oacute;lio de Matheus Raposo (abre em nova aba)" title="Ver todos os meus projetos">
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
        stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
     <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/>
   </svg>
   <span>Portf&oacute;lio</span>
 </a>
+</nav>
 <style>
 #mr-portfolio-btn {
   position: fixed; top: 12px; right: 12px; z-index: 2147483000;
